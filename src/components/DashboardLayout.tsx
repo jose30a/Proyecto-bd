@@ -1,4 +1,6 @@
 import { Outlet, NavLink, useNavigate } from 'react-router';
+import { useEffect, useState } from 'react';
+import { getCurrentUser } from '../services/database';
 import { 
   Plane, 
   Package, 
@@ -21,6 +23,22 @@ export function DashboardLayout() {
     // Handle logout logic
     navigate('/');
   };
+
+  const [currentUser, setCurrentUser] = useState<{ email?: string; role?: string } | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const user = await getCurrentUser();
+        console.log('DashboardLayout: current user fetched', user);
+        if (user) {
+          setCurrentUser({ email: user.email_usu, role: user.nombre_rol || user.role });
+        }
+      } catch (e) {
+        // ignore
+      }
+    })();
+  }, []);
 
   const navItems = [
     { path: '/dashboard/airlines', label: 'Gestión de Aerolíneas', icon: Plane },
@@ -90,8 +108,8 @@ export function DashboardLayout() {
                 <User className="w-6 h-6 text-white" />
               </div>
               <div>
-                <p className="text-[var(--color-text-primary)]">Usuario Admin</p>
-                <p className="text-[var(--color-text-secondary)] text-xs">Administrador</p>
+                <p className="text-[var(--color-text-primary)]">{currentUser?.email || 'Usuario Admin'}</p>
+                <p className="text-[var(--color-text-secondary)] text-xs">{currentUser?.role || 'Administrador'}</p>
               </div>
             </div>
 

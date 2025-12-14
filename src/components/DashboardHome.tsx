@@ -1,10 +1,42 @@
+import { useEffect, useState } from 'react';
 import { TrendingUp, Users, Package, DollarSign } from 'lucide-react';
 
+interface DashboardStats {
+  total_sales: string;
+  active_users: string;
+  total_packages: string;
+  monthly_revenue: string;
+}
+
 export function DashboardHome() {
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const response = await fetch('http://localhost:3001/api/function/get_dashboard_stats', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ params: [] }),
+        });
+        const result = await response.json();
+        if (result.success && result.data && result.data.length > 0) {
+          setStats(result.data[0]);
+        }
+      } catch (error) {
+        console.error('Error fetching dashboard stats:', error);
+      }
+    };
+
+    fetchStats();
+  }, []);
+
   const summaryCards = [
     {
       title: 'Ventas Totales',
-      value: '$124,500',
+      value: stats ? `$${Number(stats.total_sales).toLocaleString()}` : 'Loading...',
       change: '+12.5%',
       trend: 'up',
       icon: DollarSign,
@@ -13,7 +45,7 @@ export function DashboardHome() {
     },
     {
       title: 'Usuarios Activos',
-      value: '1,234',
+      value: stats ? Number(stats.active_users).toLocaleString() : 'Loading...',
       change: '+8.2%',
       trend: 'up',
       icon: Users,
@@ -22,7 +54,7 @@ export function DashboardHome() {
     },
     {
       title: 'Paquetes Turísticos',
-      value: '87',
+      value: stats ? Number(stats.total_packages).toLocaleString() : 'Loading...',
       change: '+5.4%',
       trend: 'up',
       icon: Package,
@@ -31,7 +63,7 @@ export function DashboardHome() {
     },
     {
       title: 'Ingresos Mensuales',
-      value: '$45,200',
+      value: stats ? `$${Number(stats.monthly_revenue).toLocaleString()}` : 'Loading...',
       change: '+15.3%',
       trend: 'up',
       icon: TrendingUp,
@@ -65,10 +97,12 @@ export function DashboardHome() {
                 <div className={`w-12 h-12 ${card.bgColor} rounded-lg flex items-center justify-center`}>
                   <Icon className={`w-6 h-6 ${card.iconColor}`} />
                 </div>
+                {/* 
                 <div className="flex items-center gap-1 text-green-600 text-xs">
                   <TrendingUp className="w-3 h-3" />
                   <span>{card.change}</span>
                 </div>
+                */}
               </div>
               <h3 className="text-[var(--color-text-secondary)] text-sm mb-1">
                 {card.title}
@@ -79,24 +113,6 @@ export function DashboardHome() {
             </div>
           );
         })}
-      </div>
-
-      {/* Recent Activity Section */}
-      <div className="mt-8 bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg p-6">
-        <h2 className="text-[var(--color-text-primary)] mb-4">
-          Acciones Rápidas
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <button className="px-4 py-3 bg-[var(--color-primary-blue)] hover:bg-[var(--color-primary-blue-hover)] text-white rounded-md transition-colors text-left">
-            Crear Nuevo Paquete
-          </button>
-          <button className="px-4 py-3 bg-[var(--color-background)] hover:bg-[var(--color-border)] text-[var(--color-text-primary)] rounded-md transition-colors text-left border border-[var(--color-border)]">
-            Agregar Promoción
-          </button>
-          <button className="px-4 py-3 bg-[var(--color-background)] hover:bg-[var(--color-border)] text-[var(--color-text-primary)] rounded-md transition-colors text-left border border-[var(--color-border)]">
-            Generar Reporte
-          </button>
-        </div>
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getAllUsers, updateUserRole } from '../services/database';
+import { getAllUsers, updateUserRole, getAllRoles } from '../services/database';
 import { Search, Edit2, Save, ChevronLeft, ChevronRight, Users, Shield, AlertTriangle, X } from 'lucide-react';
 
 interface User {
@@ -15,7 +15,7 @@ interface User {
   status: 'Active' | 'Inactive';
 }
 
-type Role = 'Administrator' | 'Agent' | 'Client';
+type Role = string;
 
 export function UserRoleManagement() {
   const [searchTerm, setSearchTerm] = useState('');
@@ -25,11 +25,17 @@ export function UserRoleManagement() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [modalSelectedRole, setModalSelectedRole] = useState<Role>('Client');
+  const [modalEmail, setModalEmail] = useState('');
+  const [modalPrimerNombre, setModalPrimerNombre] = useState('');
+  const [modalSegundoNombre, setModalSegundoNombre] = useState('');
+  const [modalPrimerApellido, setModalPrimerApellido] = useState('');
+  const [modalSegundoApellido, setModalSegundoApellido] = useState('');
   
   // Track inline edits (user ID -> new role)
   const [inlineEdits, setInlineEdits] = useState<Record<number, Role>>({});
 
   const [users, setUsers] = useState<User[]>([]);
+  const [availableRoles, setAvailableRoles] = useState<string[]>(['Administrator', 'Agent', 'Client']);
 
   useEffect(() => {
     let mounted = true;
@@ -46,12 +52,21 @@ export function UserRoleManagement() {
           ci: u.ci,
           email: u.email,
           avatar: u.avatar || ((u.primerNombre ? u.primerNombre.charAt(0) : 'U') + (u.primerApellido ? u.primerApellido.charAt(0) : '')),
-          role: (u.role === 'Administrator' || u.role === 'Agent') ? u.role as any : 'Client',
+          role: u.role || 'Client',
           status: 'Active',
         })));
       } catch (err) {
         // Keep empty list on error; server logs provide details
         console.error('Failed to fetch users', err);
+      }
+    })();
+    // fetch available roles
+    (async () => {
+      try {
+        const roles = await getAllRoles();
+        if (roles && roles.length > 0) setAvailableRoles(roles);
+      } catch (err) {
+        console.warn('Could not fetch roles, using defaults', err);
       }
     })();
     return () => { mounted = false; };
@@ -113,17 +128,47 @@ export function UserRoleManagement() {
   const handleEditClick = (user: User) => {
     setEditingUser(user);
     setModalSelectedRole(user.role);
+    setModalEmail(user.email);
+    setModalPrimerNombre(user.primerNombre);
+    setModalSegundoNombre(user.segundoNombre || '');
+    setModalPrimerApellido(user.primerApellido);
+    setModalSegundoApellido(user.segundoApellido || '');
     setIsModalOpen(true);
   };
 
-  const handleModalSave = () => {
+  const handleModalSave = async () => {
     if (!editingUser) return;
 
-    // Persist change via procedure and update local state
+    // Persist role change
     setUsers(users.map(user => user.id === editingUser.id ? { ...user, role: modalSelectedRole } : user));
     updateUserRole(editingUser.id, modalSelectedRole).catch(err => {
       console.error('Failed to update role', err);
     });
+
+    // Persist basic details (email and names)
+    try {
+      const { updateUserDetails } = await import('../services/database');
+      await updateUserDetails(editingUser.id, {
+        email: modalEmail,
+        primerNombre: modalPrimerNombre,
+        segundoNombre: modalSegundoNombre,
+        primerApellido: modalPrimerApellido,
+        segundoApellido: modalSegundoApellido,
+      });
+
+      // Update local state with new details
+      setUsers(prev => prev.map(u => u.id === editingUser.id ? {
+        ...u,
+        email: modalEmail,
+        primerNombre: modalPrimerNombre,
+        segundoNombre: modalSegundoNombre,
+        primerApellido: modalPrimerApellido,
+        segundoApellido: modalSegundoApellido,
+      } : u));
+    } catch (err) {
+      console.error('Failed to update user details', err);
+    }
+
     setIsModalOpen(false);
     setEditingUser(null);
   };
@@ -342,9 +387,9 @@ export function UserRoleManagement() {
                               : 'border-[var(--color-border)]'
                           }`}
                         >
-                          <option value="Administrator">Administrator</option>
-                          <option value="Agent">Agent</option>
-                          <option value="Client">Client</option>
+                          {availableRoles.map(r => (
+                            <option key={r} value={r}>{r}</option>
+                          ))}
                         </select>
                       </td>
 
@@ -456,10 +501,12 @@ export function UserRoleManagement() {
                 </div>
                 <div>
                   <div className="text-[var(--color-text-primary)]">
-                    {getFullName(editingUser)}
+                    <input value={modalPrimerNombre} onChange={(e) => setModalPrimerNombre(e.target.value)} className="bg-transparent border-0 text-[var(--color-text-primary)] text-lg" />
+                    <input value={modalPrimerApellido} onChange={(e) => setModalPrimerApellido(e.target.value)} className="bg-transparent border-0 text-[var(--color-text-primary)] text-lg ml-2" />
                   </div>
-                  <div className="text-sm text-[var(--color-text-secondary)]">
-                    {editingUser.ci} • {editingUser.email}
+                  <div className="text-sm text-[var(--color-text-secondary)] flex flex-col">
+                    <span>{editingUser.ci}</span>
+                    <input value={modalEmail} onChange={(e) => setModalEmail(e.target.value)} className="bg-transparent border-0 text-sm text-[var(--color-text-secondary)] mt-1" />
                   </div>
                 </div>
               </div>
@@ -474,9 +521,9 @@ export function UserRoleManagement() {
                   onChange={(e) => setModalSelectedRole(e.target.value as Role)}
                   className="w-full px-4 py-3 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] transition-all text-lg"
                 >
-                  <option value="Administrator">Administrator</option>
-                  <option value="Agent">Agent</option>
-                  <option value="Client">Client</option>
+                  {availableRoles.map(r => (
+                    <option key={r} value={r}>{r}</option>
+                  ))}
                 </select>
               </div>
 

@@ -7,7 +7,22 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware
-app.use(cors());
+const FRONTEND_ORIGIN = process.env.FRONTEND_URL || 'http://localhost:5173';
+const EXTRA_ORIGINS = (process.env.EXTRA_FRONTEND_ORIGINS || 'http://localhost:3000').split(',');
+const allowedOrigins = [FRONTEND_ORIGIN, ...EXTRA_ORIGINS].map(s => s.trim()).filter(Boolean);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow non-browser requests (e.g., curl) where origin is undefined
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    // For development, allow any localhost with any port
+    if (/^http:\/\/localhost(:\d+)?$/.test(origin)) return callback(null, true);
+    return callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+}));
+app.options('*', cors());
 app.use(express.json());
 
 // Database connection pool
@@ -44,11 +59,7 @@ app.post('/api/procedure/:procedureName', async (req, res) => {
   }
   
   try {
-    // For procedures with OUT parameters, we need to use a DO block or SELECT
-    // The best approach is to use SELECT with the procedure call
-    // Build placeholders. Support typed params: if a param is an object { value, type }
-    // then use the provided type (e.g. 'INTEGER' or 'TEXT'). Otherwise, default
-    // behavior: numbers -> INTEGER, strings -> TEXT (do NOT auto-cast numeric strings).
+    // Build placeholders and types for parameters (support typed params)
     const values = [];
     const paramPlaceholders = params.length > 0
       ? params.map((p, i) => {
@@ -70,39 +81,72 @@ app.post('/api/procedure/:procedureName', async (req, res) => {
           return `$${i + 1}::${pgType}`;
         }).join(', ')
       : '';
-    
-    // For procedures with OUT parameters, we need to call them differently
-    // Use a SELECT statement that calls the procedure and returns the OUT parameters
-    // This requires wrapping in a function-like call or using DO block
-    // Actually, the simplest is to use CALL and then query the result
-    // But PostgreSQL procedures with OUT params need special handling
-    
-    // Try using CALL first - if it fails, we'll catch and provide better error
+
     const query = `CALL ${procedureName}(${paramPlaceholders})`;
-    const result = await pool.query(query, values.length ? values : params);
-    
-    // Procedures with OUT parameters return a single row with the OUT values as columns
-    // The column names match the OUT parameter names (p_cod, p_email_usu, etc.)
-    const data = result.rows.length > 0 ? result.rows[0] : { message: 'Procedure executed successfully' };
-    
-    res.json({
-      success: true,
-      data: data,
-    });
+
+    // Use a dedicated client so we can SET the session parameter for triggers
+    const client = await pool.connect();
+    let inTx = false;
+    try {
+      // Determine acting user: prefer x-user-id header, fallback to cookie 'current_user'
+      let headerUser = req.header('x-user-id');
+      if (!headerUser && req.headers && req.headers.cookie) {
+        const match = req.headers.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('current_user='));
+        if (match) headerUser = match.split('=')[1];
+      }
+
+      // Log what we'll set for auditing (helps debugging when fk_usuario is null)
+      console.log(`[procedure] ${procedureName} - acting user from header/cookie:`, headerUser || 'none');
+
+      if (headerUser) {
+        await client.query('BEGIN');
+        inTx = true;
+        await client.query("SELECT set_config('app.current_user', $1, true)", [String(headerUser)]);
+      }
+
+      const result = await client.query(query, values.length ? values : []);
+
+      // For register_user, verify insertion and return the created user row
+      let data = result.rows && result.rows.length > 0 ? result.rows[0] : { message: 'Procedure executed successfully' };
+      if (procedureName === 'register_user' && values && values.length > 0) {
+        try {
+          const emailParam = values[0];
+          const userRes = await client.query('SELECT cod, email_usu, primer_nombre_usu, primer_apellido_usu, fk_cod_rol FROM usuario WHERE email_usu = $1', [emailParam]);
+          if (userRes.rows.length > 0) {
+            data = userRes.rows[0];
+          } else {
+            // No user found after procedure call — keep original result and log
+            console.warn('register_user executed but user not found for email:', emailParam);
+          }
+        } catch (selErr) {
+          console.error('Error verifying created user after register_user:', selErr);
+        }
+      }
+
+      if (inTx) {
+        await client.query('COMMIT');
+      }
+
+      res.json({ success: true, data });
+    } catch (error) {
+      if (inTx) {
+        try { await client.query('ROLLBACK'); } catch (e) { /* ignore rollback errors */ }
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
   } catch (error) {
     console.error(`Error calling procedure ${procedureName}:`, error);
     console.error(`Query attempted: CALL ${procedureName}(...)`);
     console.error(`Parameters:`, params);
-    
-    // Provide helpful error message if procedure doesn't exist
-    if (error.code === '42883' || error.message.includes('does not exist')) {
-      // Check if procedure exists
+
+    if (error.code === '42883' || (error.message && error.message.includes('does not exist'))) {
       const checkQuery = `
         SELECT proname, pg_get_function_arguments(oid) as args
         FROM pg_proc 
         WHERE proname = $1 AND pronamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public')
       `;
-      
       try {
         const checkResult = await pool.query(checkQuery, [procedureName]);
         if (checkResult.rows.length === 0) {
@@ -122,15 +166,11 @@ app.post('/api/procedure/:procedureName', async (req, res) => {
           });
         }
       } catch (checkError) {
-        // If check fails, just return the original error
+        // fall through to generic error
       }
     }
-    
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      code: error.code,
-    });
+
+    res.status(500).json({ success: false, error: error.message, code: error.code });
   }
 });
 
@@ -172,15 +212,54 @@ app.post('/api/function/:functionName', async (req, res) => {
         }).join(', ')
       : '';
     const query = `SELECT * FROM ${functionName}(${paramPlaceholders})`;
-    const result = await pool.query(query, funcValues.length ? funcValues : params);
-    
-    res.json({
-      success: true,
-      data: result.rows,
-    });
+
+    const client = await pool.connect();
+    let inTx = false;
+    try {
+      // Determine acting user: prefer x-user-id header, fallback to cookie 'current_user'
+      let headerUser = req.header('x-user-id');
+      if (!headerUser && req.headers && req.headers.cookie) {
+        const match = req.headers.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('current_user='));
+        if (match) headerUser = match.split('=')[1];
+      }
+
+      // Log what we'll set for auditing (helps debugging when fk_usuario is null)
+      console.log(`[function] ${functionName} - acting user from header/cookie:`, headerUser || 'none');
+
+      if (headerUser) {
+        await client.query('BEGIN');
+        inTx = true;
+        await client.query("SELECT set_config('app.current_user', $1, true)", [String(headerUser)]);
+      }
+
+      const result = await client.query(query, funcValues.length ? funcValues : []);
+
+      // If this is authentication, set an HttpOnly cookie for subsequent requests
+      if (functionName === 'authenticate_user' && result.rows && result.rows.length > 0) {
+        const userRow = result.rows[0];
+        const userId = userRow.p_cod || userRow.p_cod || userRow.p_fk_cod || userRow.p_cod;
+        if (userId) {
+          // Set cookie (HttpOnly) so browser sends it automatically
+          res.cookie('current_user', String(userId), { httpOnly: true, path: '/' });
+        }
+      }
+
+      if (inTx) {
+        await client.query('COMMIT');
+      }
+
+      res.json({ success: true, data: result.rows });
+    } catch (error) {
+      if (inTx) {
+        try { await client.query('ROLLBACK'); } catch (e) { /* ignore rollback errors */ }
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
   } catch (error) {
     console.error(`Error calling function ${functionName}:`, error);
-    
+
     // Provide helpful error message if function doesn't exist
     if (error.code === '42883') {
       return res.status(500).json({
@@ -189,11 +268,8 @@ app.post('/api/function/:functionName', async (req, res) => {
         hint: 'Run: psql -U postgres -d viajesucab -f server/auth-procedures.sql'
       });
     }
-    
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -204,6 +280,53 @@ app.get('/api/health', async (req, res) => {
     res.json({ status: 'ok', database: 'connected' });
   } catch (error) {
     res.status(500).json({ status: 'error', database: 'disconnected', error: error.message });
+  }
+});
+
+// Current user endpoint: returns user info based on cookie or header
+app.get('/api/me', async (req, res) => {
+  try {
+    // Prefer x-user-id header, fallback to cookie 'current_user'
+    let headerUser = req.header('x-user-id');
+    if (!headerUser && req.headers && req.headers.cookie) {
+      const match = req.headers.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('current_user='));
+      if (match) headerUser = match.split('=')[1];
+    }
+
+    console.log('/api/me header/cookie acting user:', headerUser || 'none');
+
+    if (!headerUser) {
+      return res.status(401).json({ success: false, error: 'Not authenticated' });
+    }
+
+    const userIdNum = parseInt(String(headerUser), 10);
+    if (Number.isNaN(userIdNum)) {
+      console.warn('/api/me invalid user id value:', headerUser);
+      return res.status(401).json({ success: false, error: 'Invalid authenticated user' });
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query("SELECT set_config('app.current_user', $1, true)", [String(userIdNum)]);
+      const result = await client.query('SELECT * FROM get_user_by_id($1)', [userIdNum]);
+      await client.query('COMMIT');
+
+      if (!result.rows || result.rows.length === 0) {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+
+      res.json({ success: true, data: result.rows[0] });
+    } catch (err) {
+      try { await client.query('ROLLBACK'); } catch (e) {}
+      console.error('/api/me error:', err);
+      res.status(500).json({ success: false, error: err.message });
+    } finally {
+      client.release();
+    }
+  } catch (error) {
+    console.error('Error in /api/me:', error);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 

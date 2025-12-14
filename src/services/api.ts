@@ -26,6 +26,7 @@ export async function callProcedure<T = any>(
       headers: {
         'Content-Type': 'application/json',
       },
+      credentials: 'include',
       body: JSON.stringify({ params }),
     });
 
@@ -57,6 +58,7 @@ export async function callFunction<T = any>(
       headers: {
         'Content-Type': 'application/json',
       },
+      credentials: 'include',
       body: JSON.stringify({ params }),
     });
 
@@ -84,6 +86,21 @@ export async function checkHealth(): Promise<{ status: string; database: string 
   } catch (error) {
     console.error('Health check failed:', error);
     throw error;
+  }
+}
+
+/**
+ * Get current authenticated user (based on cookie or header)
+ */
+export async function getCurrentUser<T = any>(): Promise<T | null> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/me`, { credentials: 'include' });
+    const result: ApiResponse<T> = await response.json();
+    if (!result.success) return null;
+    return result.data as T;
+  } catch (error) {
+    console.error('Error fetching current user:', error);
+    return null;
   }
 }
 
