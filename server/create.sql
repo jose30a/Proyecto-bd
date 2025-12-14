@@ -24,7 +24,7 @@ CREATE TABLE usuario (
     tipo_documento VARCHAR(5) NOT NULL,
     n_pasaporte_usu VARCHAR(20) NOT NULL UNIQUE,
     visa_usu BOOLEAN,
-    millas_acum_usu INTEGER,
+    millas_acum_usu INTEGER DEFAULT 0,
     fk_cod_rol INTEGER REFERENCES rol(cod) -- Relación Usuario -> Rol
 );
 
@@ -504,6 +504,7 @@ CREATE OR REPLACE PROCEDURE register_user(
     p_ci VARCHAR,
     p_tipo_documento VARCHAR,
     p_n_pasaporte VARCHAR,
+    p_visa BOOLEAN,
     p_fk_cod_rol INTEGER
 ) AS $$
 DECLARE
@@ -527,6 +528,7 @@ BEGIN
         ci_usu,
         tipo_documento,
         n_pasaporte_usu,
+        visa_usu,
         fk_cod_rol
     ) VALUES (
         p_email,
@@ -538,6 +540,7 @@ BEGIN
         p_ci,
         p_tipo_documento,
         p_n_pasaporte,
+        COALESCE(p_visa, false),
         COALESCE(p_fk_cod_rol, 2) -- Default to 'Cliente' role if NULL
     );
 END;

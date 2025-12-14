@@ -111,6 +111,7 @@ export interface RegisterUserData {
   ci: string;
   tipo_documento: string;
   n_pasaporte: string;
+  visa?: boolean;
   fk_cod_rol?: number; // Defaults to 2 (Cliente) if not provided
 }
 
@@ -127,6 +128,8 @@ export async function registerUser(userData: RegisterUserData): Promise<void> {
       userData.ci,
       userData.tipo_documento,
       userData.n_pasaporte,
+      // New param: visa (boolean) then role; millas_acum is handled by DB default
+      typeof userData.visa === 'boolean' ? { value: userData.visa, type: 'BOOLEAN' } : { value: false, type: 'BOOLEAN' },
       userData.fk_cod_rol || 2
     ]
   );

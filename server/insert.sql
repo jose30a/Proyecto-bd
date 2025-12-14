@@ -156,9 +156,9 @@ BEGIN
             ) VALUES (
                 v_nombre1, v_nombre2,
                 v_apellido1, v_apellido2,
-                'V-' || v_ci_base::TEXT, 
+                v_ci_base::TEXT, 
                 'V', 
-                'P-' || (v_ci_base + 50000000)::TEXT, -- Pasaporte también único
+                (v_ci_base + 50000000)::TEXT, -- Pasaporte también único
                 (random() > 0.3), 
                 floor(random() * 5000)::int, 
                 2,
@@ -210,7 +210,7 @@ SELECT
 FROM usuario u;
 
 INSERT INTO usuario (email_usu,password_usu,primer_nombre_usu,segundo_nombre_usu,primer_apellido_usu,segundo_apellido_usu,ci_usu,tipo_documento,n_pasaporte_usu,visa_usu,millas_acum_usu,fk_cod_rol) 
-    VALUES ('test@gmail.com','test','Test',NULL,  'User',  NULL, 'V-99999999', 'V','P-99999999', false,0,1 );
+    VALUES ('test@gmail.com','test','Test',NULL,  'User',  NULL, '99999999', 'V','99999999', false,0,1 );
 
 
 

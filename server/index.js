@@ -46,13 +46,28 @@ app.post('/api/procedure/:procedureName', async (req, res) => {
   try {
     // For procedures with OUT parameters, we need to use a DO block or SELECT
     // The best approach is to use SELECT with the procedure call
+    // Build placeholders. Support typed params: if a param is an object { value, type }
+    // then use the provided type (e.g. 'INTEGER' or 'TEXT'). Otherwise, default
+    // behavior: numbers -> INTEGER, strings -> TEXT (do NOT auto-cast numeric strings).
+    const values = [];
     const paramPlaceholders = params.length > 0
-      ? params.map((_, i) => {
-          const param = params[i];
-          if (typeof param === 'number' || (typeof param === 'string' && /^\d+$/.test(param))) {
-            return `$${i + 1}::INTEGER`;
+      ? params.map((p, i) => {
+          let pgType = 'TEXT';
+          let val = p;
+
+          if (p && typeof p === 'object' && Object.prototype.hasOwnProperty.call(p, 'value') && Object.prototype.hasOwnProperty.call(p, 'type')) {
+            val = p.value;
+            pgType = String(p.type).toUpperCase();
+          } else if (typeof p === 'boolean') {
+            pgType = 'BOOLEAN';
+          } else if (typeof p === 'number') {
+            pgType = 'INTEGER';
+          } else {
+            pgType = 'TEXT';
           }
-          return `$${i + 1}::TEXT`;
+
+          values.push(val);
+          return `$${i + 1}::${pgType}`;
         }).join(', ')
       : '';
     
@@ -64,7 +79,7 @@ app.post('/api/procedure/:procedureName', async (req, res) => {
     
     // Try using CALL first - if it fails, we'll catch and provide better error
     const query = `CALL ${procedureName}(${paramPlaceholders})`;
-    const result = await pool.query(query, params);
+    const result = await pool.query(query, values.length ? values : params);
     
     // Procedures with OUT parameters return a single row with the OUT values as columns
     // The column names match the OUT parameter names (p_cod, p_email_usu, etc.)
@@ -132,21 +147,32 @@ app.post('/api/function/:functionName', async (req, res) => {
     });
   }
   
-  try {
+    try {
     // Call PostgreSQL function using SELECT
-    // For VARCHAR/TEXT parameters, cast to text; for integers, keep as is
+    // Support typed params objects { value, type } and basic detection: number->INTEGER, boolean->BOOLEAN, else TEXT
+    const funcValues = [];
     const paramPlaceholders = params.length > 0
-      ? params.map((_, i) => {
-          // Try to detect if it's a number, otherwise cast to text
-          const param = params[i];
-          if (typeof param === 'number' || (typeof param === 'string' && /^\d+$/.test(param))) {
-            return `$${i + 1}::INTEGER`;
+      ? params.map((p, i) => {
+          let pgType = 'TEXT';
+          let val = p;
+
+          if (p && typeof p === 'object' && Object.prototype.hasOwnProperty.call(p, 'value') && Object.prototype.hasOwnProperty.call(p, 'type')) {
+            val = p.value;
+            pgType = String(p.type).toUpperCase();
+          } else if (typeof p === 'boolean') {
+            pgType = 'BOOLEAN';
+          } else if (typeof p === 'number') {
+            pgType = 'INTEGER';
+          } else {
+            pgType = 'TEXT';
           }
-          return `$${i + 1}::TEXT`;
+
+          funcValues.push(val);
+          return `$${i + 1}::${pgType}`;
         }).join(', ')
       : '';
     const query = `SELECT * FROM ${functionName}(${paramPlaceholders})`;
-    const result = await pool.query(query, params);
+    const result = await pool.query(query, funcValues.length ? funcValues : params);
     
     res.json({
       success: true,

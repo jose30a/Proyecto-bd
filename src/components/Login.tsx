@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Building2 } from 'lucide-react';
 import { useNavigate } from 'react-router';
 import { authenticateUser } from '../services/database';
+import RegisterDialog from './RegisterDialog';
 
 export function Login() {
   const [email, setEmail] = useState('');
@@ -9,6 +10,7 @@ export function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const [showRegister, setShowRegister] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,7 +110,18 @@ export function Login() {
             <p className="text-[var(--color-text-secondary)] text-xs">
               Inicio de sesión seguro protegido con encriptación estándar de la industria
             </p>
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={() => setShowRegister(true)}
+                className="text-[var(--color-primary-blue)] hover:underline text-sm"
+              >
+                ¿No tienes cuenta? Registrarse
+              </button>
+            </div>
           </div>
+        
+        {showRegister && <RegisterDialog open={showRegister} onClose={() => setShowRegister(false)} />}
         </div>
       </div>
     </div>
