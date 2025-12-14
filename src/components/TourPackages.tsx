@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Search, Plus, Edit2, Trash2, ChevronLeft, ChevronRight, Save, X, Plane, Hotel, Calendar, Users, Clock, DollarSign, Package, Tag } from 'lucide-react';
-import { getAllPackages, upsertPackage, deletePackage, getPackageDetails } from '../services/database';
+import { getAllPackages, upsertPackage, deletePackage, getPackageDetails, getAllServices, getAllHotels, getAllRestaurants, addItemToPackage, removeItemFromPackage, ServiceItem, HotelItem } from '../services/database';
 
 interface Service {
   id: number;
-  type: 'Hotel' | 'Flight';
+  type: 'Hotel' | 'Flight' | 'Restaurant';
   name: string;
   startDate: string;
   endDate: string;
@@ -29,7 +29,7 @@ export function TourPackages() {
   const [currentPage, setCurrentPage] = useState(1);
   const [isDetailView, setIsDetailView] = useState(false);
   const [editingPackage, setEditingPackage] = useState<TourPackage | null>(null);
-  
+
   // Form state
   const [formData, setFormData] = useState({
     name: '',
@@ -42,12 +42,21 @@ export function TourPackages() {
 
   const [services, setServices] = useState<Service[]>([]);
   const [isServiceModalOpen, setIsServiceModalOpen] = useState(false);
+  const [availableServices, setAvailableServices] = useState<ServiceItem[]>([]);
+  const [availableHotels, setAvailableHotels] = useState<HotelItem[]>([]);
+  const [availableRestaurants, setAvailableRestaurants] = useState<any[]>([]);
   const [newService, setNewService] = useState({
-    type: 'Hotel' as 'Hotel' | 'Flight',
-    name: '',
+    type: 'Hotel' as 'Hotel' | 'Flight' | 'Restaurant',
+    itemId: 0,
     startDate: '',
     endDate: '',
   });
+
+  useEffect(() => {
+    getAllServices().then(setAvailableServices).catch(err => console.error('Failed to load services', err));
+    getAllHotels().then(setAvailableHotels).catch(err => console.error('Failed to load hotels', err));
+    getAllRestaurants().then(setAvailableRestaurants).catch(err => console.error('Failed to load restaurants', err));
+  }, []);
 
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
@@ -55,22 +64,7 @@ export function TourPackages() {
 
   // Predefined tag suggestions
   const tagSuggestions = [
-    'Beach',
-    'Mountain',
-    'City',
-    'Adventure',
-    'Relaxation',
-    'Culture',
-    'Historical',
-    'Luxury',
-    'Budget',
-    'Family',
-    'Romantic',
-    'Wildlife',
-    'Food & Wine',
-    'Shopping',
-    'Cruise',
-    'Backpacking',
+    'Beach', 'Mountain', 'City', 'Adventure', 'Relaxation', 'Culture', 'Historical', 'Luxury', 'Budget', 'Family', 'Romantic', 'Wildlife', 'Food & Wine', 'Shopping', 'Cruise', 'Backpacking',
   ];
 
   const availableTagSuggestions = tagSuggestions.filter(
@@ -90,7 +84,7 @@ export function TourPackages() {
           const details = await getPackageDetails(pkgId).catch(() => []);
           const svc: Service[] = (details || []).map((d: any, idx: number) => ({
             id: d.item_id || idx,
-            type: d.item_type === 'hotel' ? 'Hotel' : 'Flight',
+            type: d.item_type === 'hotel' ? 'Hotel' : (d.item_type === 'restaurant' ? 'Restaurant' : 'Flight'),
             name: d.item_name,
             startDate: d.inicio || '',
             endDate: d.fin || '',
@@ -99,13 +93,12 @@ export function TourPackages() {
 
           // compute aggregates from services
           const totalCost = svc.reduce((sum, s) => sum + (s.cost || 0), 0);
-          const capacity = svc.length; // fallback: number of included services
+          const capacity = svc.length; // fallback
           const duration = svc.reduce((sum, s) => {
             if (s.startDate && s.endDate) {
               const sd = Date.parse(s.startDate);
               const ed = Date.parse(s.endDate);
               if (!isNaN(sd) && !isNaN(ed) && ed >= sd) {
-                // inclusive days
                 const days = Math.round((ed - sd) / (1000 * 60 * 60 * 24)) + 1;
                 return sum + days;
               }
@@ -133,10 +126,9 @@ export function TourPackages() {
     return () => { mounted = false; };
   }, []);
 
+  // ... (pagination logic unchanged)
   const itemsPerPage = 8;
   const totalPages = Math.ceil(packages.length / itemsPerPage);
-
-  // Filtered and paginated data (defensive)
   const filteredPackages = packages.filter(pkg => {
     const s = (searchTerm || '').toLowerCase();
     const name = (pkg.name || '').toLowerCase();
@@ -145,11 +137,7 @@ export function TourPackages() {
     const matchesStatus = statusFilter === 'all' || pkg.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
-
-  const paginatedPackages = filteredPackages.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
-  );
+  const paginatedPackages = filteredPackages.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
   const handleAddNew = () => {
     setEditingPackage(null);
@@ -178,17 +166,15 @@ export function TourPackages() {
   const loadPackageDetails = async (pkgId: number) => {
     try {
       const details = await getPackageDetails(pkgId);
-      // convert to Service[] for simple rendering
       const svc: Service[] = (details || []).map((d: any, idx: number) => ({
         id: d.item_id || idx,
-        type: d.item_type === 'hotel' ? 'Hotel' : (d.item_type === 'service' ? 'Flight' : 'Hotel'),
+        type: d.item_type === 'hotel' ? 'Hotel' : (d.item_type === 'restaurant' ? 'Restaurant' : 'Flight'),
         name: d.item_name,
         startDate: d.inicio || '',
         endDate: d.fin || '',
         cost: d.costo ? Number(d.costo) : 0,
       }));
 
-      // compute aggregates
       const totalCost = svc.reduce((sum, s) => sum + (s.cost || 0), 0);
       const capacity = svc.length;
       const duration = svc.reduce((sum, s) => {
@@ -204,7 +190,6 @@ export function TourPackages() {
       }, 0);
 
       setServices(svc);
-      // update formData so editor shows computed aggregates
       setFormData(prev => ({ ...prev, totalCost, capacity, duration }));
     } catch (err) {
       console.error('Failed to load package details', err);
@@ -219,65 +204,73 @@ export function TourPackages() {
   };
 
   const handleSave = () => {
-    // Validation
-    if (!formData.name.trim()) {
-      alert('Please enter a package name');
-      return;
-    }
-    if (formData.totalCost <= 0) {
-      alert('Please enter a valid total cost');
-      return;
-    }
-    if (formData.capacity <= 0) {
-      alert('Please enter a valid capacity');
-      return;
-    }
-    if (formData.duration <= 0) {
-      alert('Please enter a valid duration');
-      return;
-    }
+    // ... (validation logic unchanged)
+    if (!formData.name.trim()) { alert('Please enter a package name'); return; }
+    if (formData.totalCost <= 0) { alert('Please enter a valid total cost'); return; }
+    if (formData.capacity <= 0) { alert('Please enter a valid capacity'); return; }
+    if (formData.duration <= 0) { alert('Please enter a valid duration'); return; }
 
     if (editingPackage) {
-      // Update existing
       const updated = packages.map(pkg => pkg.id === editingPackage.id ? { ...pkg, ...formData, services, tags } : pkg);
       setPackages(updated);
       upsertPackage({ id: editingPackage.id, name: formData.name, description: formData.description, status: formData.status, millaje: 0, costo_millas: 0, huella: 0 }).catch(err => console.error('Failed to update package', err));
     } else {
-      // Add new
-      const newPackage: TourPackage = {
-        id: Math.max(...packages.map(p => p.id), 0) + 1,
-        ...formData,
-        services,
-        tags,
-      };
+      const newPackage: TourPackage = { id: Math.max(...packages.map(p => p.id), 0) + 1, ...formData, services, tags };
       setPackages([...packages, newPackage]);
       upsertPackage({ id: null, name: formData.name, description: formData.description, status: formData.status, millaje: 0, costo_millas: 0, huella: 0 }).catch(err => console.error('Failed to create package', err));
     }
     setIsDetailView(false);
   };
 
-  const handleCancel = () => {
-    setIsDetailView(false);
-  };
+  const handleCancel = () => setIsDetailView(false);
 
-  const handleAddService = () => {
-    if (!newService.name.trim() || !newService.startDate || !newService.endDate) {
+  const handleAddService = async () => {
+    if (!newService.itemId || !newService.startDate || !newService.endDate) {
       alert('Please fill in all service fields');
       return;
     }
+    try {
+      if (editingPackage) {
+        let dbType = 'transport';
+        if (newService.type === 'Hotel') dbType = 'hotel';
+        if (newService.type === 'Restaurant') dbType = 'restaurant';
 
-    const service: Service = {
-      id: Math.max(...services.map(s => s.id), 0) + 1,
-      ...newService,
-    };
-    setServices([...services, service]);
-    setNewService({ type: 'Hotel', name: '', startDate: '', endDate: '' });
-    setIsServiceModalOpen(false);
+        await addItemToPackage(
+          editingPackage.id,
+          Number(newService.itemId),
+          dbType as any,
+          newService.startDate,
+          newService.endDate
+        );
+        await loadPackageDetails(editingPackage.id);
+      } else {
+        alert('Please save the package first before adding services.');
+        return;
+      }
+      setNewService({ type: 'Hotel', itemId: 0, startDate: '', endDate: '' });
+      setIsServiceModalOpen(false);
+    } catch (err: any) {
+      alert('Failed to add service: ' + err.message);
+    }
   };
 
-  const handleRemoveService = (id: number) => {
+  const handleRemoveService = async (id: number, type: string) => {
     if (confirm('Remove this service?')) {
-      setServices(services.filter(s => s.id !== id));
+      if (editingPackage) {
+        try {
+          let dbType = 'transport';
+          if (type === 'Hotel') dbType = 'hotel';
+          if (type === 'Restaurant') dbType = 'restaurant';
+
+          await removeItemFromPackage(editingPackage.id, id, dbType as any);
+          await loadPackageDetails(editingPackage.id);
+        } catch (err) {
+          console.error(err);
+          alert('Failed to remove service');
+        }
+      } else {
+        setServices(services.filter(s => s.id !== id));
+      }
     }
   };
 
@@ -385,11 +378,10 @@ export function TourPackages() {
                       <td className="px-6 py-4 text-[var(--color-text-secondary)]">{pkg.services.length} service(s)</td>
                       <td className="px-6 py-4">
                         <span
-                          className={`inline-flex items-center px-3 py-1 rounded-full text-xs ${
-                            pkg.status === 'Active'
-                              ? 'bg-green-100 text-green-700'
-                              : 'bg-gray-100 text-gray-700'
-                          }`}
+                          className={`inline-flex items-center px-3 py-1 rounded-full text-xs ${pkg.status === 'Active'
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-gray-100 text-gray-700'
+                            }`}
                         >
                           {pkg.status}
                         </span>
@@ -439,16 +431,15 @@ export function TourPackages() {
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
-                
+
                 {[...Array(totalPages)].map((_, index) => (
                   <button
                     key={index + 1}
                     onClick={() => setCurrentPage(index + 1)}
-                    className={`px-4 py-2 rounded-md transition-colors ${
-                      currentPage === index + 1
-                        ? 'bg-[var(--color-primary-blue)] text-white'
-                        : 'border border-[var(--color-border)] hover:bg-[var(--color-background)] text-[var(--color-text-primary)]'
-                    }`}
+                    className={`px-4 py-2 rounded-md transition-colors ${currentPage === index + 1
+                      ? 'bg-[var(--color-primary-blue)] text-white'
+                      : 'border border-[var(--color-border)] hover:bg-[var(--color-background)] text-[var(--color-text-primary)]'
+                      }`}
                   >
                     {index + 1}
                   </button>
@@ -501,7 +492,7 @@ export function TourPackages() {
                 <h2 className="text-[var(--color-text-primary)]">Package Information</h2>
               </div>
             </div>
-            
+
             <div className="p-6 space-y-4">
               {/* Package Name */}
               <div>
@@ -640,11 +631,10 @@ export function TourPackages() {
                             ) : (
                               <Hotel className="w-4 h-4 text-purple-600" />
                             )}
-                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs ${
-                              service.type === 'Flight'
-                                ? 'bg-blue-100 text-blue-700'
-                                : 'bg-purple-100 text-purple-700'
-                            }`}>
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs ${service.type === 'Flight'
+                              ? 'bg-blue-100 text-blue-700'
+                              : 'bg-purple-100 text-purple-700'
+                              }`}>
                               {service.type}
                             </span>
                           </div>
@@ -654,7 +644,7 @@ export function TourPackages() {
                         <td className="px-6 py-3 text-[var(--color-text-secondary)] text-sm">{service.endDate}</td>
                         <td className="px-6 py-3">
                           <button
-                            onClick={() => handleRemoveService(service.id)}
+                            onClick={() => handleRemoveService(service.id, service.type)}
                             className="p-1.5 text-red-600 hover:bg-red-50 rounded-md transition-colors"
                             title="Remove service"
                           >
@@ -685,7 +675,7 @@ export function TourPackages() {
                 <h2 className="text-[var(--color-text-primary)]">Package Tags</h2>
               </div>
             </div>
-            
+
             <div className="p-6 space-y-4">
               {/* Tag Input */}
               <div className="relative">
@@ -798,25 +788,39 @@ export function TourPackages() {
                 </label>
                 <select
                   value={newService.type}
-                  onChange={(e) => setNewService({ ...newService, type: e.target.value as 'Hotel' | 'Flight' })}
+                  onChange={(e) => setNewService({ ...newService, type: e.target.value as any, itemId: 0 })}
                   className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
                 >
                   <option value="Hotel">Hotel</option>
                   <option value="Flight">Flight</option>
+                  <option value="Restaurant">Restaurant</option>
                 </select>
               </div>
 
               <div>
                 <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
-                  Service Name
+                  Select Item
                 </label>
-                <input
-                  type="text"
-                  value={newService.name}
-                  onChange={(e) => setNewService({ ...newService, name: e.target.value })}
+                <select
+                  value={newService.itemId}
+                  onChange={(e) => setNewService({ ...newService, itemId: Number(e.target.value) })}
                   className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
-                  placeholder="Enter service name"
-                />
+                >
+                  <option value={0}>-- Select Item --</option>
+                  {newService.type === 'Flight' ? (
+                    availableServices.map(s => (
+                      <option key={s.id} value={s.id}>{s.name} ({s.number})</option>
+                    ))
+                  ) : newService.type === 'Restaurant' ? (
+                    availableRestaurants.map(r => (
+                      <option key={r.id} value={r.id}>{r.name} ({r.type})</option>
+                    ))
+                  ) : (
+                    availableHotels.map(h => (
+                      <option key={h.id} value={h.id}>{h.name}</option>
+                    ))
+                  )}
+                </select>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
