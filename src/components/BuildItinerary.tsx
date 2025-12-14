@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Check, Search, ShoppingCart, User, CreditCard, DollarSign, Package, Plane, Hotel, Plus, Trash2, ChevronRight, ChevronLeft, Calendar, Users, X } from 'lucide-react';
+import { getAllPackages, getPackageDetails } from '../services/database';
 
 interface ServiceItem {
   id: number;
@@ -67,93 +68,43 @@ export function BuildItinerary() {
     zellePhone: '',
   });
 
-  // Mock packages data
-  const packages: PackageItem[] = [
-    {
-      id: 1,
-      name: 'European Grand Tour',
-      description: 'Comprehensive tour covering major European cities with cultural experiences',
-      price: 3500,
-      duration: 14,
-      services: 5,
-    },
-    {
-      id: 2,
-      name: 'Caribbean Paradise',
-      description: 'Tropical island hopping with beach resorts and water activities',
-      price: 2200,
-      duration: 7,
-      services: 3,
-    },
-    {
-      id: 3,
-      name: 'Asian Adventure',
-      description: 'Explore vibrant Asian cities with cultural immersion',
-      price: 2800,
-      duration: 10,
-      services: 4,
-    },
-    {
-      id: 4,
-      name: 'Mountain Retreat',
-      description: 'Alpine adventure with hiking and mountain lodge accommodations',
-      price: 1950,
-      duration: 5,
-      services: 3,
-    },
-  ];
+  const [packages, setPackages] = useState<PackageItem[]>([]);
+  const [services, setServices] = useState<ServiceItem[]>([]);
 
-  // Mock services data
-  const services: ServiceItem[] = [
-    {
-      id: 1,
-      type: 'Flight',
-      name: 'New York to Paris - Air France',
-      description: 'Direct flight - Economy Class',
-      price: 850,
-      details: 'Departure: 10:00 AM | Duration: 7h 30m',
-    },
-    {
-      id: 2,
-      type: 'Flight',
-      name: 'London to Dubai - Emirates',
-      description: 'Direct flight - Business Class',
-      price: 1200,
-      details: 'Departure: 2:00 PM | Duration: 6h 45m',
-    },
-    {
-      id: 3,
-      type: 'Flight',
-      name: 'Caracas to Miami - American Airlines',
-      description: 'Direct flight - Economy Class',
-      price: 450,
-      details: 'Departure: 8:00 AM | Duration: 4h 15m',
-    },
-    {
-      id: 4,
-      type: 'Hotel',
-      name: 'Grand Hotel Paris',
-      description: 'Luxury 5-star accommodation',
-      price: 350,
-      details: 'Per night | City center location',
-    },
-    {
-      id: 5,
-      type: 'Hotel',
-      name: 'Dubai Marina Resort',
-      description: 'Beachfront resort with spa',
-      price: 450,
-      details: 'Per night | All-inclusive',
-    },
-    {
-      id: 6,
-      type: 'Hotel',
-      name: 'Hilton Caracas',
-      description: 'Modern hotel in business district',
-      price: 180,
-      details: 'Per night | Free breakfast included',
-    },
-  ];
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const rows = await getAllPackages();
+        if (!mounted) return;
+        const mapped = await Promise.all((rows || []).map(async (r: any) => {
+          const pkgId = r.p_cod ?? r.id;
+          const details = await getPackageDetails(pkgId).catch(() => []);
+          const svc: ServiceItem[] = (details || []).map((d: any, idx: number) => ({
+            id: d.item_id ?? idx,
+            type: d.item_type === 'hotel' ? 'Hotel' : 'Flight',
+            name: d.item_name || '',
+            description: d.item_name || '',
+            price: Number(d.costo || 0) || 0,
+            details: d.inicio ? `${d.inicio}${d.fin ? ' - ' + d.fin : ''}` : '',
+          }));
+          return {
+            id: pkgId,
+            name: r.p_nombre_paq ?? r.name,
+            description: (r.p_descripcion_paq ?? r.description) || '',
+            price: Number(r.p_millaje_paq || r.price || 0) || 0,
+            duration: Number(r.p_duracion_paq || r.duration || 0) || 0,
+            services: svc.length,
+          } as PackageItem;
+        }));
+        if (!mounted) return;
+        setPackages(mapped);
+      } catch (err) {
+        console.error('Failed to load packages', err);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
 
   const steps = [
     { number: 1, title: 'Selection', icon: ShoppingCart },
@@ -161,16 +112,20 @@ export function BuildItinerary() {
     { number: 3, title: 'Payment', icon: CreditCard },
   ];
 
-  // Filter items based on search
-  const filteredPackages = packages.filter(pkg =>
-    pkg.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    pkg.description.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Filter items based on search (defensive)
+  const filteredPackages = packages.filter(pkg => {
+    const s = (searchTerm || '').toLowerCase();
+    const name = (pkg.name || '').toLowerCase();
+    const desc = (pkg.description || '').toLowerCase();
+    return name.includes(s) || desc.includes(s);
+  });
 
-  const filteredServices = services.filter(service =>
-    service.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    service.description.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredServices = services.filter(service => {
+    const s = (searchTerm || '').toLowerCase();
+    const name = (service.name || '').toLowerCase();
+    const desc = (service.description || '').toLowerCase();
+    return name.includes(s) || desc.includes(s);
+  });
 
   const totalCost = cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
 
@@ -183,15 +138,33 @@ export function BuildItinerary() {
         item.id === cartId ? { ...item, quantity: item.quantity + 1 } : item
       ));
     } else {
-      setCart([...cart, {
-        id: cartId,
-        itemType: 'package',
-        name: pkg.name,
-        description: pkg.description,
-        price: pkg.price,
-        quantity: 1,
-        details: `${pkg.duration} days | ${pkg.services} services included`,
-      }]);
+      // Fetch package details to show included items in cart details
+      (async () => {
+        try {
+          const details = await getPackageDetails(pkg.id as number);
+          const detailText = (details || []).map(d => d.item_name + (d.inicio ? ` (${d.inicio}${d.fin ? ' - ' + d.fin : ''})` : '')).join(', ');
+          setCart(prev => ([...prev, {
+            id: cartId,
+            itemType: 'package',
+            name: pkg.name,
+            description: pkg.description,
+            price: pkg.price,
+            quantity: 1,
+            details: detailText || `${pkg.duration} days | ${pkg.services} services included`,
+          }]));
+        } catch (err) {
+          console.error('Failed to load package details', err);
+          setCart(prev => ([...prev, {
+            id: cartId,
+            itemType: 'package',
+            name: pkg.name,
+            description: pkg.description,
+            price: pkg.price,
+            quantity: 1,
+            details: `${pkg.duration} days | ${pkg.services} services included`,
+          }]));
+        }
+      })();
     }
   };
 

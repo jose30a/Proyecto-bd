@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Search, Plus, Edit2, Trash2, ChevronLeft, ChevronRight, Save, X, Plane, Hotel, Calendar, Users, Clock, DollarSign, Package, Tag } from 'lucide-react';
+import { getAllPackages, upsertPackage, deletePackage, getPackageDetails } from '../services/database';
 
 interface Service {
   id: number;
@@ -7,6 +8,7 @@ interface Service {
   name: string;
   startDate: string;
   endDate: string;
+  cost?: number;
 }
 
 interface TourPackage {
@@ -72,70 +74,74 @@ export function TourPackages() {
   ];
 
   const availableTagSuggestions = tagSuggestions.filter(
-    tag => !tags.includes(tag) && tag.toLowerCase().includes(tagInput.toLowerCase())
+    tag => !tags.includes(tag) && (tag || '').toLowerCase().includes((tagInput || '').toLowerCase())
   );
 
-  // Mock data
-  const [packages, setPackages] = useState<TourPackage[]>([
-    { 
-      id: 1, 
-      name: 'European Grand Tour', 
-      description: 'Comprehensive tour covering major European cities with cultural experiences',
-      totalCost: 3500,
-      capacity: 25,
-      duration: 14,
-      services: [
-        { id: 1, type: 'Flight', name: 'Air France AF123 - JFK to CDG', startDate: '2024-06-01', endDate: '2024-06-01' },
-        { id: 2, type: 'Hotel', name: 'Le Grand Paris - Deluxe Room', startDate: '2024-06-01', endDate: '2024-06-05' },
-      ],
-      tags: ['City', 'Culture', 'Historical'],
-      status: 'Active' 
-    },
-    { 
-      id: 2, 
-      name: 'Caribbean Paradise', 
-      description: 'Tropical island hopping with beach resorts and water activities',
-      totalCost: 2200,
-      capacity: 30,
-      duration: 7,
-      services: [
-        { id: 1, type: 'Flight', name: 'Delta DL456 - MIA to KIN', startDate: '2024-07-10', endDate: '2024-07-10' },
-        { id: 2, type: 'Hotel', name: 'Jamaica Beach Resort - Ocean View', startDate: '2024-07-10', endDate: '2024-07-17' },
-      ],
-      tags: ['Beach', 'Relaxation', 'Adventure'],
-      status: 'Active' 
-    },
-    { 
-      id: 3, 
-      name: 'Asian Adventure', 
-      description: 'Explore vibrant Asian cities with cultural immersion and culinary experiences',
-      totalCost: 2800,
-      capacity: 20,
-      duration: 10,
-      services: [],
-      tags: ['City', 'Food & Wine', 'Culture'],
-      status: 'Active' 
-    },
-    { 
-      id: 4, 
-      name: 'Mountain Retreat', 
-      description: 'Alpine adventure with hiking, skiing, and mountain lodge accommodations',
-      totalCost: 1950,
-      capacity: 15,
-      duration: 5,
-      services: [],
-      tags: ['Mountain', 'Adventure', 'Relaxation'],
-      status: 'Active' 
-    },
-  ]);
+  const [packages, setPackages] = useState<TourPackage[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const rows = await getAllPackages();
+        if (!mounted) return;
+        const mapped = await Promise.all((rows || []).map(async (r: any) => {
+          const pkgId = r.p_cod ?? r.id;
+          const details = await getPackageDetails(pkgId).catch(() => []);
+          const svc: Service[] = (details || []).map((d: any, idx: number) => ({
+            id: d.item_id || idx,
+            type: d.item_type === 'hotel' ? 'Hotel' : 'Flight',
+            name: d.item_name,
+            startDate: d.inicio || '',
+            endDate: d.fin || '',
+            cost: d.costo ? Number(d.costo) : 0,
+          }));
+
+          // compute aggregates from services
+          const totalCost = svc.reduce((sum, s) => sum + (s.cost || 0), 0);
+          const capacity = svc.length; // fallback: number of included services
+          const duration = svc.reduce((sum, s) => {
+            if (s.startDate && s.endDate) {
+              const sd = Date.parse(s.startDate);
+              const ed = Date.parse(s.endDate);
+              if (!isNaN(sd) && !isNaN(ed) && ed >= sd) {
+                // inclusive days
+                const days = Math.round((ed - sd) / (1000 * 60 * 60 * 24)) + 1;
+                return sum + days;
+              }
+            }
+            return sum;
+          }, 0);
+
+          return {
+            id: pkgId,
+            name: r.p_nombre_paq ?? r.name,
+            description: (r.p_descripcion_paq ?? r.description) || '',
+            totalCost: totalCost,
+            capacity: capacity,
+            duration: duration,
+            services: svc,
+            tags: [],
+            status: (r.p_estado_paq ?? r.status) || 'Active',
+          } as TourPackage;
+        }));
+        setPackages(mapped);
+      } catch (err) {
+        console.error('Failed to load packages', err);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
 
   const itemsPerPage = 8;
   const totalPages = Math.ceil(packages.length / itemsPerPage);
 
-  // Filtered and paginated data
+  // Filtered and paginated data (defensive)
   const filteredPackages = packages.filter(pkg => {
-    const matchesSearch = pkg.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         pkg.description.toLowerCase().includes(searchTerm.toLowerCase());
+    const s = (searchTerm || '').toLowerCase();
+    const name = (pkg.name || '').toLowerCase();
+    const description = (pkg.description || '').toLowerCase();
+    const matchesSearch = name.includes(s) || description.includes(s);
     const matchesStatus = statusFilter === 'all' || pkg.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -166,11 +172,49 @@ export function TourPackages() {
     setServices(pkg.services);
     setTags(pkg.tags);
     setIsDetailView(true);
+    loadPackageDetails(pkg.id);
+  };
+
+  const loadPackageDetails = async (pkgId: number) => {
+    try {
+      const details = await getPackageDetails(pkgId);
+      // convert to Service[] for simple rendering
+      const svc: Service[] = (details || []).map((d: any, idx: number) => ({
+        id: d.item_id || idx,
+        type: d.item_type === 'hotel' ? 'Hotel' : (d.item_type === 'service' ? 'Flight' : 'Hotel'),
+        name: d.item_name,
+        startDate: d.inicio || '',
+        endDate: d.fin || '',
+        cost: d.costo ? Number(d.costo) : 0,
+      }));
+
+      // compute aggregates
+      const totalCost = svc.reduce((sum, s) => sum + (s.cost || 0), 0);
+      const capacity = svc.length;
+      const duration = svc.reduce((sum, s) => {
+        if (s.startDate && s.endDate) {
+          const sd = Date.parse(s.startDate);
+          const ed = Date.parse(s.endDate);
+          if (!isNaN(sd) && !isNaN(ed) && ed >= sd) {
+            const days = Math.round((ed - sd) / (1000 * 60 * 60 * 24)) + 1;
+            return sum + days;
+          }
+        }
+        return sum;
+      }, 0);
+
+      setServices(svc);
+      // update formData so editor shows computed aggregates
+      setFormData(prev => ({ ...prev, totalCost, capacity, duration }));
+    } catch (err) {
+      console.error('Failed to load package details', err);
+    }
   };
 
   const handleDelete = (id: number) => {
     if (confirm('Are you sure you want to delete this package?')) {
       setPackages(packages.filter(pkg => pkg.id !== id));
+      deletePackage(id).catch(err => console.error('Failed to delete package', err));
     }
   };
 
@@ -195,16 +239,9 @@ export function TourPackages() {
 
     if (editingPackage) {
       // Update existing
-      setPackages(packages.map(pkg =>
-        pkg.id === editingPackage.id
-          ? { 
-              ...pkg, 
-              ...formData,
-              services,
-              tags,
-            }
-          : pkg
-      ));
+      const updated = packages.map(pkg => pkg.id === editingPackage.id ? { ...pkg, ...formData, services, tags } : pkg);
+      setPackages(updated);
+      upsertPackage({ id: editingPackage.id, name: formData.name, description: formData.description, status: formData.status, millaje: 0, costo_millas: 0, huella: 0 }).catch(err => console.error('Failed to update package', err));
     } else {
       // Add new
       const newPackage: TourPackage = {
@@ -214,6 +251,7 @@ export function TourPackages() {
         tags,
       };
       setPackages([...packages, newPackage]);
+      upsertPackage({ id: null, name: formData.name, description: formData.description, status: formData.status, millaje: 0, costo_millas: 0, huella: 0 }).catch(err => console.error('Failed to create package', err));
     }
     setIsDetailView(false);
   };

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { getAllUsers, updateUserRole } from '../services/database';
 import { Search, Edit2, Save, ChevronLeft, ChevronRight, Users, Shield, AlertTriangle, X } from 'lucide-react';
 
 interface User {
@@ -28,122 +29,33 @@ export function UserRoleManagement() {
   // Track inline edits (user ID -> new role)
   const [inlineEdits, setInlineEdits] = useState<Record<number, Role>>({});
 
-  // Mock user data
-  const [users, setUsers] = useState<User[]>([
-    {
-      id: 1,
-      primerNombre: 'Carlos',
-      segundoNombre: 'Alberto',
-      primerApellido: 'Rodríguez',
-      segundoApellido: 'Pérez',
-      ci: 'V-12345678',
-      email: 'carlos.rodriguez@email.com',
-      avatar: 'CR',
-      role: 'Administrator',
-      status: 'Active',
-    },
-    {
-      id: 2,
-      primerNombre: 'María',
-      primerApellido: 'García',
-      segundoApellido: 'López',
-      ci: 'V-23456789',
-      email: 'maria.garcia@email.com',
-      avatar: 'MG',
-      role: 'Agent',
-      status: 'Active',
-    },
-    {
-      id: 3,
-      primerNombre: 'José',
-      segundoNombre: 'Luis',
-      primerApellido: 'Martínez',
-      segundoApellido: 'Hernández',
-      ci: 'V-34567890',
-      email: 'jose.martinez@email.com',
-      avatar: 'JM',
-      role: 'Agent',
-      status: 'Active',
-    },
-    {
-      id: 4,
-      primerNombre: 'Ana',
-      primerApellido: 'Fernández',
-      ci: 'V-45678901',
-      email: 'ana.fernandez@email.com',
-      avatar: 'AF',
-      role: 'Client',
-      status: 'Active',
-    },
-    {
-      id: 5,
-      primerNombre: 'Luis',
-      segundoNombre: 'Eduardo',
-      primerApellido: 'González',
-      segundoApellido: 'Silva',
-      ci: 'E-12345678',
-      email: 'luis.gonzalez@email.com',
-      avatar: 'LG',
-      role: 'Client',
-      status: 'Active',
-    },
-    {
-      id: 6,
-      primerNombre: 'Carmen',
-      primerApellido: 'Ramírez',
-      segundoApellido: 'Torres',
-      ci: 'V-56789012',
-      email: 'carmen.ramirez@email.com',
-      avatar: 'CR',
-      role: 'Agent',
-      status: 'Inactive',
-    },
-    {
-      id: 7,
-      primerNombre: 'Miguel',
-      segundoNombre: 'Ángel',
-      primerApellido: 'Díaz',
-      segundoApellido: 'Morales',
-      ci: 'V-67890123',
-      email: 'miguel.diaz@email.com',
-      avatar: 'MD',
-      role: 'Client',
-      status: 'Active',
-    },
-    {
-      id: 8,
-      primerNombre: 'Isabel',
-      primerApellido: 'Sánchez',
-      segundoApellido: 'Rojas',
-      ci: 'V-78901234',
-      email: 'isabel.sanchez@email.com',
-      avatar: 'IS',
-      role: 'Client',
-      status: 'Active',
-    },
-    {
-      id: 9,
-      primerNombre: 'Pedro',
-      primerApellido: 'Jiménez',
-      ci: 'V-89012345',
-      email: 'pedro.jimenez@email.com',
-      avatar: 'PJ',
-      role: 'Agent',
-      status: 'Active',
-    },
-    {
-      id: 10,
-      primerNombre: 'Sofía',
-      segundoNombre: 'Carolina',
-      primerApellido: 'Vargas',
-      segundoApellido: 'Castro',
-      ci: 'V-90123456',
-      email: 'sofia.vargas@email.com',
-      avatar: 'SV',
-      role: 'Client',
-      status: 'Inactive',
-    },
-  ]);
+  const [users, setUsers] = useState<User[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const fetched = await getAllUsers();
+        if (!mounted) return;
+        setUsers(fetched.map(u => ({
+          id: u.id,
+          primerNombre: u.primerNombre,
+          segundoNombre: u.segundoNombre,
+          primerApellido: u.primerApellido,
+          segundoApellido: u.segundoApellido,
+          ci: u.ci,
+          email: u.email,
+          avatar: u.avatar || ((u.primerNombre ? u.primerNombre.charAt(0) : 'U') + (u.primerApellido ? u.primerApellido.charAt(0) : '')),
+          role: (u.role === 'Administrator' || u.role === 'Agent') ? u.role as any : 'Client',
+          status: 'Active',
+        })));
+      } catch (err) {
+        // Keep empty list on error; server logs provide details
+        console.error('Failed to fetch users', err);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
 
   const itemsPerPage = 8;
   
@@ -151,13 +63,16 @@ export function UserRoleManagement() {
     return `${user.primerNombre} ${user.primerApellido}`;
   };
 
-  // Filtered data
+  // Filtered data (defensive: avoid calling toLowerCase on undefined)
   const filteredUsers = users.filter(user => {
-    const fullName = getFullName(user).toLowerCase();
+    const s = (searchTerm || '').toLowerCase();
+    const fullName = (getFullName(user) || '').toLowerCase();
+    const ci = (user.ci || '').toLowerCase();
+    const email = (user.email || '').toLowerCase();
     const matchesSearch = 
-      fullName.includes(searchTerm.toLowerCase()) ||
-      user.ci.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchTerm.toLowerCase());
+      fullName.includes(s) ||
+      ci.includes(s) ||
+      email.includes(s);
     const matchesStatus = statusFilter === 'all' || user.status === statusFilter;
     const matchesRole = roleFilter === 'all' || user.role === roleFilter;
     return matchesSearch && matchesStatus && matchesRole;
@@ -181,9 +96,11 @@ export function UserRoleManagement() {
     const newRole = inlineEdits[userId];
     if (!newRole) return;
 
-    setUsers(users.map(user =>
-      user.id === userId ? { ...user, role: newRole } : user
-    ));
+    // Optimistic update + persist to DB
+    setUsers(users.map(user => user.id === userId ? { ...user, role: newRole } : user));
+    updateUserRole(userId, newRole).catch(err => {
+      console.error('Failed to update role', err);
+    });
 
     // Remove from pending edits
     setInlineEdits(prev => {
@@ -202,10 +119,11 @@ export function UserRoleManagement() {
   const handleModalSave = () => {
     if (!editingUser) return;
 
-    setUsers(users.map(user =>
-      user.id === editingUser.id ? { ...user, role: modalSelectedRole } : user
-    ));
-
+    // Persist change via procedure and update local state
+    setUsers(users.map(user => user.id === editingUser.id ? { ...user, role: modalSelectedRole } : user));
+    updateUserRole(editingUser.id, modalSelectedRole).catch(err => {
+      console.error('Failed to update role', err);
+    });
     setIsModalOpen(false);
     setEditingUser(null);
   };

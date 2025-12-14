@@ -345,7 +345,8 @@ CREATE TABLE reseña (
 
 CREATE TABLE promocion (
     cod SERIAL PRIMARY KEY,
-    tipo_pro VARCHAR(50) NOT NULL
+    tipo_pro VARCHAR(50) NOT NULL,
+    porcen_descuento DECIMAL(5,2) NOT NULL
 );
 
 CREATE TABLE preferencia (
@@ -542,7 +543,6 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Procedure to update user password (using procedure for UPDATE operation)
 CREATE OR REPLACE PROCEDURE update_user_password(
     p_email VARCHAR,
     p_old_password VARCHAR,
@@ -564,3 +564,396 @@ BEGIN
     END IF;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Function to return a list of users for management UI
+-- Ensure no conflicting function signature exists before creating
+DROP FUNCTION IF EXISTS get_all_users() CASCADE;
+CREATE OR REPLACE FUNCTION get_all_users()
+RETURNS TABLE (
+    p_cod INTEGER,
+    p_primer_nombre_usu VARCHAR,
+    p_segundo_nombre_usu VARCHAR,
+    p_primer_apellido_usu VARCHAR,
+    p_segundo_apellido_usu VARCHAR,
+    p_ci_usu VARCHAR,
+    p_email_usu VARCHAR,
+    p_nombre_rol VARCHAR
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        u.cod,
+        u.primer_nombre_usu,
+        u.segundo_nombre_usu,
+        u.primer_apellido_usu,
+        u.segundo_apellido_usu,
+        u.ci_usu,
+        u.email_usu,
+        r.nombre_rol
+    FROM usuario u
+    LEFT JOIN rol r ON u.fk_cod_rol = r.cod
+    ORDER BY u.cod;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Procedure to update a user's role
+-- Ensure no conflicting procedure exists before creating
+DROP PROCEDURE IF EXISTS update_user_role(INTEGER, VARCHAR) CASCADE;
+CREATE OR REPLACE PROCEDURE update_user_role(
+    p_user_id INTEGER,
+    p_role_name VARCHAR
+) AS $$
+DECLARE
+    v_role_id INTEGER;
+    v_updated INTEGER;
+BEGIN
+    -- Find role id (create role if it does not exist)
+    SELECT cod INTO v_role_id FROM rol WHERE nombre_rol = p_role_name LIMIT 1;
+    IF v_role_id IS NULL THEN
+        INSERT INTO rol (nombre_rol) VALUES (p_role_name) RETURNING cod INTO v_role_id;
+    END IF;
+
+    UPDATE usuario SET fk_cod_rol = v_role_id WHERE cod = p_user_id;
+    GET DIAGNOSTICS v_updated = ROW_COUNT;
+
+    IF v_updated = 0 THEN
+        RAISE EXCEPTION 'User with id % not found', p_user_id;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+-- =============================================
+-- Packages (paquete_turistico)
+-- =============================================
+DROP FUNCTION IF EXISTS get_all_packages() CASCADE;
+CREATE OR REPLACE FUNCTION get_all_packages()
+RETURNS TABLE (
+    p_cod INTEGER,
+    p_nombre_paq VARCHAR,
+    p_descripcion_paq TEXT,
+    p_estado_paq VARCHAR,
+    p_millaje_paq INTEGER,
+    p_costo_millas_paq INTEGER,
+    p_huella_de_carbono_paq DECIMAL
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT cod, nombre_paq, descripcion_paq, estado_paq, millaje_paq, costo_millas_paq, huella_de_carbono_paq
+    FROM paquete_turistico
+    ORDER BY cod;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP PROCEDURE IF EXISTS upsert_package(INTEGER, VARCHAR, TEXT, VARCHAR, INTEGER, INTEGER, DECIMAL) CASCADE;
+CREATE OR REPLACE PROCEDURE upsert_package(
+    p_id INTEGER,
+    p_name VARCHAR,
+    p_description TEXT,
+    p_status VARCHAR,
+    p_millaje INTEGER,
+    p_costo_millas INTEGER,
+    p_huella DECIMAL
+)
+AS $$
+BEGIN
+    IF p_id IS NULL THEN
+        INSERT INTO paquete_turistico (nombre_paq, descripcion_paq, estado_paq, millaje_paq, costo_millas_paq, huella_de_carbono_paq)
+        VALUES (p_name, p_description, COALESCE(p_status, 'Active'), COALESCE(p_millaje,0), COALESCE(p_costo_millas,0), COALESCE(p_huella,0));
+    ELSE
+        UPDATE paquete_turistico
+        SET nombre_paq = p_name,
+            descripcion_paq = p_description,
+            estado_paq = COALESCE(p_status, estado_paq),
+            millaje_paq = COALESCE(p_millaje, millaje_paq),
+            costo_millas_paq = COALESCE(p_costo_millas, costo_millas_paq),
+            huella_de_carbono_paq = COALESCE(p_huella, huella_de_carbono_paq)
+        WHERE cod = p_id;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP PROCEDURE IF EXISTS delete_package(INTEGER) CASCADE;
+CREATE OR REPLACE PROCEDURE delete_package(p_id INTEGER) AS $$
+BEGIN
+    DELETE FROM paquete_turistico WHERE cod = p_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Return services, hotels and restaurants included in a package
+DROP FUNCTION IF EXISTS get_package_details(INTEGER) CASCADE;
+CREATE OR REPLACE FUNCTION get_package_details(p_package_id INTEGER)
+RETURNS TABLE (
+    item_type VARCHAR,
+    item_id INTEGER,
+    item_name VARCHAR,
+    inicio DATE,
+    fin DATE,
+    costo DECIMAL,
+    millaje INTEGER
+) AS $$
+BEGIN
+    -- Services from ser_paq join servicio
+    RETURN QUERY
+    SELECT 'service'::VARCHAR AS item_type, s.cod AS item_id, s.nombre_ser AS item_name, sp.inicio_ser AS inicio, sp.fin_ser AS fin, sp.costo_ser::DECIMAL AS costo, sp.millaje_ser AS millaje
+    FROM ser_paq sp
+    JOIN servicio s ON sp.fk_servicio = s.cod
+    WHERE sp.fk_paquete = p_package_id
+    UNION ALL
+    -- Hotels from hot_paq join hotel
+    SELECT 'hotel'::VARCHAR, h.cod, h.nombre_hot, hp.inicio_estadia_hot, hp.fin_estadia_hot, hp.costo_reserva_hot::DECIMAL, hp.millaje_hot
+    FROM hot_paq hp
+    JOIN hotel h ON hp.fk_hotel = h.cod
+    WHERE hp.fk_paquete = p_package_id
+    UNION ALL
+    -- Restaurants from res_paq join restaurant
+    SELECT 'restaurant'::VARCHAR, r.cod, r.nombre_res, rp.inicio_reserva_res, rp.fin_reserva_res, rp.costo_reserva_res::DECIMAL, rp.millaje_res
+    FROM res_paq rp
+    JOIN restaurant r ON rp.fk_restaurant = r.cod
+    WHERE rp.fk_paquete = p_package_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- =============================================
+-- Promotions
+-- =============================================
+DROP FUNCTION IF EXISTS get_all_promotions() CASCADE;
+CREATE OR REPLACE FUNCTION get_all_promotions()
+RETURNS TABLE (p_cod INTEGER, p_tipo_pro VARCHAR, p_porcen_descuento DECIMAL) AS $$
+BEGIN
+    RETURN QUERY SELECT cod, tipo_pro, porcen_descuento FROM promocion ORDER BY cod;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP PROCEDURE IF EXISTS upsert_promotion(INTEGER, VARCHAR) CASCADE;
+CREATE OR REPLACE PROCEDURE upsert_promotion(p_id INTEGER, p_tipo VARCHAR, p_porcen_descuento DECIMAL) AS $$
+BEGIN
+    IF p_id IS NULL THEN
+        INSERT INTO promocion (tipo_pro, porcen_descuento) VALUES (p_tipo, COALESCE(p_porcen_descuento,0));
+    ELSE
+        UPDATE promocion SET tipo_pro = p_tipo, porcen_descuento = COALESCE(p_porcen_descuento, porcen_descuento) WHERE cod = p_id;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP PROCEDURE IF EXISTS delete_promotion(INTEGER) CASCADE;
+CREATE OR REPLACE PROCEDURE delete_promotion(p_id INTEGER) AS $$
+BEGIN
+    DELETE FROM promocion WHERE cod = p_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- =============================================
+-- Airlines helpers
+-- =============================================
+DROP FUNCTION IF EXISTS get_all_airlines() CASCADE;
+CREATE OR REPLACE FUNCTION get_all_airlines()
+RETURNS TABLE (p_cod INTEGER, p_nombre VARCHAR, p_origen_aer VARCHAR, p_fk_cod_lug INTEGER, p_lugar_nombre VARCHAR) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT a.cod, a.nombre, a.origen_aer, a.fk_cod_lug, l.nombre_lug
+    FROM aerolinea a
+    LEFT JOIN lugar l ON a.fk_cod_lug = l.cod_lug
+    ORDER BY a.cod;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS get_airline_contacts(INTEGER) CASCADE;
+CREATE OR REPLACE FUNCTION get_airline_contacts(p_airline_id INTEGER)
+RETURNS TABLE (p_cod INTEGER, p_cod_area VARCHAR, p_numero VARCHAR, p_tipo VARCHAR) AS $$
+BEGIN
+    RETURN QUERY SELECT cod, cod_area_tel, numero_tel, tipo_tel FROM telefono WHERE fk_cod_aer = p_airline_id ORDER BY cod;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP PROCEDURE IF EXISTS upsert_airline(INTEGER, VARCHAR, DATE, VARCHAR, INTEGER) CASCADE;
+CREATE OR REPLACE PROCEDURE upsert_airline(p_id INTEGER, p_name VARCHAR, p_f_inicio DATE, p_servicio VARCHAR, p_origen VARCHAR, p_fk_cod_lug INTEGER DEFAULT NULL) AS $$
+BEGIN
+    IF p_id IS NULL THEN
+        INSERT INTO aerolinea (nombre, f_inicio_servicio_prov, servicio_aer, origen_aer, fk_cod_lug)
+        VALUES (p_name, p_f_inicio, p_servicio, p_origen, p_fk_cod_lug);
+    ELSE
+        UPDATE aerolinea SET nombre = p_name, f_inicio_servicio_prov = p_f_inicio, servicio_aer = p_servicio, origen_aer = p_origen, fk_cod_lug = p_fk_cod_lug WHERE cod = p_id;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP PROCEDURE IF EXISTS delete_airline(INTEGER) CASCADE;
+CREATE OR REPLACE PROCEDURE delete_airline(p_id INTEGER) AS $$
+BEGIN
+    DELETE FROM aerolinea WHERE cod = p_id;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP PROCEDURE IF EXISTS upsert_contact_number(INTEGER, INTEGER, VARCHAR, VARCHAR, VARCHAR) CASCADE;
+CREATE OR REPLACE PROCEDURE upsert_contact_number(p_id INTEGER, p_airline_id INTEGER, p_cod_area VARCHAR, p_numero VARCHAR, p_tipo VARCHAR) AS $$
+BEGIN
+    IF p_id IS NULL THEN
+        INSERT INTO telefono (cod_area_tel, numero_tel, tipo_tel, fk_cod_aer) VALUES (p_cod_area, p_numero, p_tipo, p_airline_id);
+    ELSE
+        UPDATE telefono SET cod_area_tel = p_cod_area, numero_tel = p_numero, tipo_tel = p_tipo, fk_cod_aer = p_airline_id WHERE cod = p_id;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+-- =============================================
+-- Reports (basic implementations)
+-- =============================================
+DROP FUNCTION IF EXISTS get_negative_reviews(DATE, DATE) CASCADE;
+CREATE OR REPLACE FUNCTION get_negative_reviews(p_start DATE, p_end DATE)
+RETURNS TABLE (p_id INTEGER, p_date DATE, p_hotel_name VARCHAR, p_rating INTEGER, p_comment TEXT) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT r.cod, CURRENT_DATE::DATE, COALESCE(h.nombre_hot, 'Unknown'), r.rating_res, r.descripcion_res
+    FROM reseña r
+    LEFT JOIN hotel h ON r.fk_cod_hotel = h.cod
+    WHERE r.rating_res <= 2
+      AND (p_start IS NULL OR CURRENT_DATE >= p_start)
+      AND (p_end IS NULL OR CURRENT_DATE <= p_end)
+    ORDER BY r.cod DESC;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS get_exchange_rates_history(DATE, DATE) CASCADE;
+CREATE OR REPLACE FUNCTION get_exchange_rates_history(p_start DATE, p_end DATE)
+RETURNS TABLE (p_fecha TIMESTAMP, p_moneda VARCHAR, p_tasa_bs DECIMAL) AS $$
+BEGIN
+    RETURN QUERY SELECT fecha_hora_tas, moneda, tasa_bs FROM tasa_cambio
+    WHERE (p_start IS NULL OR fecha_hora_tas::date >= p_start)
+      AND (p_end IS NULL OR fecha_hora_tas::date <= p_end)
+    ORDER BY fecha_hora_tas;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS get_operator_performance(DATE, DATE) CASCADE;
+CREATE OR REPLACE FUNCTION get_operator_performance(p_start DATE, p_end DATE)
+RETURNS TABLE (p_rank INTEGER, p_operator VARCHAR, p_revenue DECIMAL, p_service_cost DECIMAL, p_duration TEXT) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT ROW_NUMBER() OVER (ORDER BY COALESCE(SUM(pay.monto_pago),0) DESC) AS p_rank,
+           COALESCE(pt.nombre_paq, 'Unknown') AS p_operator,
+           COALESCE(SUM(pay.monto_pago),0) AS p_revenue,
+           0::DECIMAL AS p_service_cost,
+           'N/A'::TEXT
+    FROM paquete_turistico pt
+    LEFT JOIN pago pay ON pay.fk_cod_paquete = pt.cod
+    GROUP BY pt.nombre_paq
+    ORDER BY p_revenue DESC;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS get_refunds_audit(DATE, DATE) CASCADE;
+CREATE OR REPLACE FUNCTION get_refunds_audit(p_start DATE, p_end DATE)
+RETURNS TABLE (p_reservation_id VARCHAR, p_total_amount DECIMAL, p_penalty DECIMAL, p_refund_amount DECIMAL, p_process_date DATE) AS $$
+BEGIN
+    -- No refund table available; return empty set for now
+    RETURN QUERY SELECT ''::VARCHAR, 0::DECIMAL, 0::DECIMAL, 0::DECIMAL, NULL::DATE WHERE FALSE;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS get_customer_age_distribution(DATE, DATE) CASCADE;
+CREATE OR REPLACE FUNCTION get_customer_age_distribution(p_start DATE, p_end DATE)
+RETURNS TABLE (p_range VARCHAR, p_count INTEGER) AS $$
+BEGIN
+    -- Age data not stored; return empty
+    RETURN QUERY SELECT ''::VARCHAR, 0::INTEGER WHERE FALSE;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS get_customer_average_age(DATE, DATE) CASCADE;
+CREATE OR REPLACE FUNCTION get_customer_average_age(p_start DATE, p_end DATE)
+RETURNS TABLE (p_avg NUMERIC) AS $$
+BEGIN
+    RETURN QUERY SELECT 0::NUMERIC;
+END;
+$$ LANGUAGE plpgsql;
+
+-- =============================================
+-- Convenience triggers: create related parents on insert
+-- =============================================
+
+-- BEFORE INSERT/UPDATE for aerolinea: ensure lugar exists and set fk
+DROP FUNCTION IF EXISTS before_upsert_aerolinea() CASCADE;
+CREATE OR REPLACE FUNCTION before_upsert_aerolinea()
+RETURNS trigger AS $$
+DECLARE
+    v_lug INTEGER;
+BEGIN
+    IF NEW.fk_cod_lug IS NOT NULL THEN
+        RETURN NEW;
+    END IF;
+
+    IF NEW.origen_aer IS NOT NULL AND TRIM(NEW.origen_aer) <> '' THEN
+        SELECT cod_lug INTO v_lug FROM lugar WHERE nombre_lug = NEW.origen_aer LIMIT 1;
+        IF v_lug IS NULL THEN
+            INSERT INTO lugar (nombre_lug, tipo_lug) VALUES (NEW.origen_aer, 'City') RETURNING cod_lug INTO v_lug;
+        END IF;
+        NEW.fk_cod_lug := v_lug;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_before_upsert_aerolinea ON aerolinea;
+CREATE TRIGGER trg_before_upsert_aerolinea
+BEFORE INSERT OR UPDATE ON aerolinea
+FOR EACH ROW EXECUTE FUNCTION before_upsert_aerolinea();
+
+-- BEFORE INSERT for paquete_turistico: ensure default plan, tasa_cambio, and user exist
+DROP FUNCTION IF EXISTS before_insert_paquete_turistico() CASCADE;
+CREATE OR REPLACE FUNCTION before_insert_paquete_turistico()
+RETURNS trigger AS $$
+DECLARE
+    v_plan INTEGER;
+    v_tasa INTEGER;
+    v_user INTEGER;
+BEGIN
+    IF NEW.fk_cod_plan_pago IS NULL THEN
+        SELECT cod INTO v_plan FROM plan_pago WHERE nombre_pla = 'Default' LIMIT 1;
+        IF v_plan IS NULL THEN
+            INSERT INTO plan_pago (nombre_pla, porcen_inicial, frecuencia_pago) VALUES ('Default', 0, 'One-time') RETURNING cod INTO v_plan;
+        END IF;
+        NEW.fk_cod_plan_pago := v_plan;
+    END IF;
+
+    IF NEW.fk_cod_tasa_cambio IS NULL THEN
+        SELECT cod INTO v_tasa FROM tasa_cambio ORDER BY fecha_hora_tas DESC LIMIT 1;
+        IF v_tasa IS NOT NULL THEN
+            NEW.fk_cod_tasa_cambio := v_tasa;
+        END IF;
+    END IF;
+
+    IF NEW.fk_cod_usuario IS NULL THEN
+        SELECT cod INTO v_user FROM usuario ORDER BY cod LIMIT 1;
+        IF v_user IS NOT NULL THEN
+            NEW.fk_cod_usuario := v_user;
+        END IF;
+    END IF;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_before_insert_paquete ON paquete_turistico;
+CREATE TRIGGER trg_before_insert_paquete
+BEFORE INSERT ON paquete_turistico
+FOR EACH ROW EXECUTE FUNCTION before_insert_paquete_turistico();
+
+-- AFTER INSERT example: create placeholder promotion when first package inserted
+DROP FUNCTION IF EXISTS after_insert_paquete_turistico() CASCADE;
+CREATE OR REPLACE FUNCTION after_insert_paquete_turistico()
+RETURNS trigger AS $$
+DECLARE
+    v_prom INTEGER;
+BEGIN
+    IF (SELECT COUNT(*) FROM promocion) = 0 THEN
+        INSERT INTO promocion (tipo_pro, porcen_descuento) VALUES ('Launch', 0) RETURNING cod INTO v_prom;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_after_insert_paquete ON paquete_turistico;
+CREATE TRIGGER trg_after_insert_paquete
+AFTER INSERT ON paquete_turistico
+FOR EACH ROW EXECUTE FUNCTION after_insert_paquete_turistico();

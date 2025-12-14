@@ -156,6 +156,49 @@ export async function emailExists(email: string): Promise<boolean> {
   return result[0]?.p_exists || false;
 }
 
+// ==================== Users (Management) ====================
+
+export interface ManagementUser {
+  id: number;
+  primerNombre: string;
+  segundoNombre?: string;
+  primerApellido: string;
+  segundoApellido?: string;
+  ci: string;
+  email: string;
+  avatar?: string;
+  role: string;
+  status?: 'Active' | 'Inactive';
+}
+
+/**
+ * Fetch all users for management UI
+ * Calls function: get_all_users()
+ */
+export async function getAllUsers(): Promise<ManagementUser[]> {
+  const rows = await callFunction<any>('get_all_users', []);
+  return rows.map((r: any) => ({
+    id: r.p_cod,
+    primerNombre: r.p_primer_nombre_usu,
+    segundoNombre: r.p_segundo_nombre_usu,
+    primerApellido: r.p_primer_apellido_usu,
+    segundoApellido: r.p_segundo_apellido_usu,
+    ci: r.p_ci_usu,
+    email: r.p_email_usu,
+    avatar: (r.p_primer_nombre_usu ? r.p_primer_nombre_usu.charAt(0) : 'U') + (r.p_primer_apellido_usu ? r.p_primer_apellido_usu.charAt(0) : ''),
+    role: r.p_nombre_rol || 'Client',
+    status: 'Active',
+  }));
+}
+
+/**
+ * Update a user's role
+ * Calls procedure: update_user_role(user_id, role_name)
+ */
+export async function updateUserRole(userId: number, roleName: string): Promise<void> {
+  await callProcedure('update_user_role', [userId, roleName]);
+}
+
 // ==================== Airlines ====================
 
 export interface Airline {
@@ -179,7 +222,14 @@ export interface ContactNumber {
  * Calls stored procedure: get_all_airlines()
  */
 export async function getAllAirlines(): Promise<Airline[]> {
-  return callFunction<Airline>('get_all_airlines', []);
+  const rows = await callFunction<any>('get_all_airlines', []);
+  return rows.map((r: any) => ({
+    id: String(r.p_cod),
+    name: r.p_nombre,
+    origin_country: r.p_origen_aer || '',
+    origin_city: r.p_lugar_nombre || r.p_origen_aer || '',
+    status: 'Active',
+  }));
 }
 
 /**
@@ -260,4 +310,115 @@ export async function getDashboardStats(): Promise<DashboardStats> {
 }
 
 // Add more database functions as needed for other modules
+
+// ==================== Packages ====================
+
+export interface PackageItem {
+  id: number;
+  name: string;
+  description: string;
+  status: string;
+  millaje: number;
+  costo_millas: number;
+  huella: number;
+}
+
+export async function getAllPackages(): Promise<PackageItem[]> {
+  const rows = await callFunction<any>('get_all_packages', []);
+  return rows.map((r: any) => ({
+    id: r.p_cod,
+    name: r.p_nombre_paq,
+    description: r.p_descripcion_paq,
+    status: r.p_estado_paq,
+    millaje: r.p_millaje_paq,
+    costo_millas: r.p_costo_millas_paq,
+    huella: Number(r.p_huella_de_carbono_paq) || 0,
+  }));
+}
+
+export async function upsertPackage(pkg: Partial<PackageItem> & { name: string }): Promise<void> {
+  await callProcedure('upsert_package', [pkg.id || null, pkg.name, pkg.description || '', pkg.status || 'Active', pkg.millaje || 0, pkg.costo_millas || 0, pkg.huella || 0]);
+}
+
+export async function deletePackage(packageId: number): Promise<void> {
+  await callProcedure('delete_package', [packageId]);
+}
+
+/**
+ * Get package composition: services, hotels, restaurants
+ */
+export interface PackageDetailItem {
+  item_type: 'service' | 'hotel' | 'restaurant';
+  item_id: number;
+  item_name: string;
+  inicio?: string | null;
+  fin?: string | null;
+  costo?: number;
+  millaje?: number;
+}
+
+export async function getPackageDetails(packageId: number): Promise<PackageDetailItem[]> {
+  const rows = await callFunction<any>('get_package_details', [packageId]);
+  return rows.map((r: any) => ({
+    item_type: r.item_type,
+    item_id: r.item_id,
+    item_name: r.item_name,
+    inicio: r.inicio || null,
+    fin: r.fin || null,
+    costo: r.costo ? Number(r.costo) : 0,
+    millaje: r.millaje || 0,
+  }));
+}
+
+// ==================== Promotions ====================
+
+export interface PromotionItem {
+  id: number;
+  tipo: string;
+}
+
+export async function getAllPromotions(): Promise<PromotionItem[]> {
+  const rows = await callFunction<any>('get_all_promotions', []);
+  return rows.map((r: any) => ({ id: r.p_cod, tipo: r.p_tipo_pro, discount: Number(r.p_porcen_descuento) || 0 }));
+}
+
+export async function upsertPromotion(id: number | null, tipo: string, discount: number | null = null): Promise<void> {
+  await callProcedure('upsert_promotion', [id || null, tipo, discount || 0]);
+}
+
+export async function deletePromotion(id: number): Promise<void> {
+  await callProcedure('delete_promotion', [id]);
+}
+
+// ==================== Reports ====================
+
+export async function getNegativeReviews(start?: string, end?: string) {
+  const rows = await callFunction<any>('get_negative_reviews', [start || null, end || null]);
+  return rows;
+}
+
+export async function getExchangeRatesHistory(start?: string, end?: string) {
+  const rows = await callFunction<any>('get_exchange_rates_history', [start || null, end || null]);
+  return rows;
+}
+
+export async function getOperatorPerformance(start?: string, end?: string) {
+  const rows = await callFunction<any>('get_operator_performance', [start || null, end || null]);
+  return rows;
+}
+
+export async function getRefundsAudit(start?: string, end?: string) {
+  const rows = await callFunction<any>('get_refunds_audit', [start || null, end || null]);
+  return rows;
+}
+
+export async function getCustomerAgeDistribution(start?: string, end?: string) {
+  const rows = await callFunction<any>('get_customer_age_distribution', [start || null, end || null]);
+  return rows;
+}
+
+export async function getCustomerAverageAge(start?: string, end?: string) {
+  const rows = await callFunction<any>('get_customer_average_age', [start || null, end || null]);
+  return rows[0]?.p_avg || 0;
+}
 

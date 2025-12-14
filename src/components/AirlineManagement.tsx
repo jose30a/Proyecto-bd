@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Search, Plus, Edit2, Trash2, ChevronLeft, ChevronRight, Phone } from 'lucide-react';
+import { getAllAirlines, getAirlineContacts, upsertAirline, deleteAirline, upsertContactNumber } from '../services/database';
 
 interface ContactNumber {
   id: number;
@@ -50,79 +51,52 @@ export function AirlineManagement() {
     { id: 1, countryCode: '', number: '', type: 'Office' as 'Office' | 'Fax' },
   ]);
 
-  // Mock data
-  const [airlines, setAirlines] = useState<Airline[]>([
-    { 
-      id: 'AER-01', 
-      name: 'Avior Airlines', 
-      originCountry: 'Venezuela', 
-      originCity: 'Caracas', 
-      status: 'Active',
-      contactNumbers: [
-        { id: 1, countryCode: '+58', number: '212-555-1234', type: 'Office' },
-        { id: 2, countryCode: '+58', number: '212-555-5678', type: 'Fax' },
-      ]
-    },
-    { 
-      id: 'AER-02', 
-      name: 'American Airlines', 
-      originCountry: 'United States', 
-      originCity: 'Dallas', 
-      status: 'Active',
-      contactNumbers: [
-        { id: 1, countryCode: '+1', number: '800-433-7300', type: 'Office' },
-      ]
-    },
-    { 
-      id: 'AER-03', 
-      name: 'Avianca', 
-      originCountry: 'Colombia', 
-      originCity: 'Bogotá', 
-      status: 'Active',
-      contactNumbers: [
-        { id: 1, countryCode: '+57', number: '1-401-3434', type: 'Office' },
-      ]
-    },
-    { 
-      id: 'AER-04', 
-      name: 'LATAM Airlines', 
-      originCountry: 'Brazil', 
-      originCity: 'São Paulo', 
-      status: 'Active',
-      contactNumbers: [
-        { id: 1, countryCode: '+55', number: '11-3003-5700', type: 'Office' },
-      ]
-    },
-    { 
-      id: 'AER-05', 
-      name: 'Aerolíneas Argentinas', 
-      originCountry: 'Argentina', 
-      originCity: 'Buenos Aires', 
-      status: 'Inactive',
-      contactNumbers: [
-        { id: 1, countryCode: '+54', number: '11-4320-2000', type: 'Office' },
-      ]
-    },
-    { 
-      id: 'AER-06', 
-      name: 'Iberia', 
-      originCountry: 'Spain', 
-      originCity: 'Madrid', 
-      status: 'Active',
-      contactNumbers: [
-        { id: 1, countryCode: '+34', number: '901-111-500', type: 'Office' },
-      ]
-    },
-  ]);
+  const [airlines, setAirlines] = useState<Airline[]>([]);
+
+  const mountedRef = useRef(true);
+
+  // Reusable loader so we can refresh after upserts/deletes
+  const loadAirlines = async () => {
+    try {
+      const rows = await getAllAirlines();
+      if (!mountedRef.current) return;
+      const mapped = await Promise.all(rows.map(async (r: any) => {
+        const idStr = String(r.id ?? r.p_cod ?? '');
+        const originCountry = r.origin_country ?? r.p_origen_aer ?? '';
+        const originCity = r.origin_city ?? r.p_lugar_nombre ?? r.p_origen_aer ?? '';
+        const contacts = await getAirlineContacts(idStr).catch(() => []);
+        return {
+          id: idStr,
+          name: r.name ?? r.p_nombre ?? '',
+          originCountry,
+          originCity,
+          status: r.status ?? 'Active',
+          contactNumbers: (contacts || []).map((c: any) => ({ id: c.p_cod, countryCode: c.p_cod_area || '', number: c.p_numero || '', type: c.p_tipo || 'Office' })),
+        } as Airline;
+      }));
+      if (!mountedRef.current) return;
+      setAirlines(mapped);
+    } catch (err) {
+      console.error('Failed to load airlines', err);
+    }
+  };
+
+  useEffect(() => {
+    mountedRef.current = true;
+    loadAirlines();
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const itemsPerPage = 5;
   const totalPages = Math.ceil(airlines.length / itemsPerPage);
 
-  // Filtered and paginated data
+  // Filtered and paginated data (defensive: handle missing fields)
   const filteredAirlines = airlines.filter(airline => {
-    const matchesSearch = airline.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         airline.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         airline.originCity.toLowerCase().includes(searchTerm.toLowerCase());
+    const s = (searchTerm || '').toLowerCase();
+    const name = (airline.name || '').toLowerCase();
+    const idStr = String(airline.id ?? '').toLowerCase();
+    const originCity = (airline.originCity || '').toLowerCase();
+    const matchesSearch = name.includes(s) || idStr.includes(s) || originCity.includes(s);
     const matchesStatus = statusFilter === 'all' || airline.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -147,17 +121,24 @@ export function AirlineManagement() {
       originCity: airline.originCity,
       status: airline.status,
     });
-    setContactNumbers(airline.contactNumbers);
+    setContactNumbers(airline.contactNumbers || []);
     setIsModalOpen(true);
   };
 
   const handleDelete = (id: string) => {
-    if (confirm('Are you sure you want to delete this airline?')) {
-      setAirlines(airlines.filter(airline => airline.id !== id));
-    }
+    if (!confirm('Are you sure you want to delete this airline?')) return;
+    (async () => {
+      try {
+        await deleteAirline(id);
+        await loadAirlines();
+      } catch (err) {
+        console.error('Failed to delete airline', err);
+        alert('Failed to delete airline. See console for details.');
+      }
+    })();
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     // Validation
     if (!formData.name.trim()) {
       alert('Please enter an airline name');
@@ -174,40 +155,29 @@ export function AirlineManagement() {
 
     // Check if at least one contact number is filled
     const validContactNumbers = contactNumbers.filter(
-      c => c.countryCode.trim() && c.number.trim()
+      c => (c.countryCode || '').toString().trim() && (c.number || '').toString().trim()
     );
     if (validContactNumbers.length === 0) {
       alert('Please add at least one contact number');
       return;
     }
 
-    if (editingAirline) {
-      // Update existing
-      setAirlines(airlines.map(airline =>
-        airline.id === editingAirline.id
-          ? { 
-              ...airline, 
-              ...formData, 
-              contactNumbers: validContactNumbers 
-            }
-          : airline
-      ));
-    } else {
-      // Add new - generate ID
-      const maxIdNumber = airlines.reduce((max, airline) => {
-        const num = parseInt(airline.id.split('-')[1]);
-        return num > max ? num : max;
-      }, 0);
-      const newId = `AER-${String(maxIdNumber + 1).padStart(2, '0')}`;
-      
-      const newAirline: Airline = {
-        id: newId,
-        ...formData,
-        contactNumbers: validContactNumbers,
-      };
-      setAirlines([...airlines, newAirline]);
+    try {
+      if (editingAirline) {
+        // Update existing - call upsert and then upsert contacts
+        await upsertAirline({ id: editingAirline.id, name: formData.name, origin_country: formData.originCountry, origin_city: formData.originCity, status: formData.status });
+        await Promise.all(validContactNumbers.map(c => upsertContactNumber({ id: c.id || null, airline_id: editingAirline.id, country_code: c.countryCode, number: c.number, type: c.type })));
+      } else {
+        // Create new - let backend assign id, then refresh
+        await upsertAirline({ id: null, name: formData.name, origin_country: formData.originCountry, origin_city: formData.originCity, status: formData.status });
+      }
+      await loadAirlines();
+      setIsModalOpen(false);
+      setEditingAirline(null);
+    } catch (err) {
+      console.error('Failed to save airline', err);
+      alert('Failed to save airline. See console for details.');
     }
-    setIsModalOpen(false);
   };
 
   const handleCancel = () => {

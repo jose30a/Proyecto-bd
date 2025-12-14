@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { getAllPromotions, upsertPromotion, deletePromotion } from '../services/database';
 import { Search, Plus, Edit2, Trash2, ChevronLeft, ChevronRight, Tag } from 'lucide-react';
 
 interface Promotion {
@@ -28,25 +29,31 @@ export function Promotions() {
     status: 'Active' as 'Active' | 'Inactive' | 'Expired',
   });
 
-  // Mock data
-  const [promotions, setPromotions] = useState<Promotion[]>([
-    { id: 1, name: 'Summer Sale 2024', code: 'SUMMER24', discount: 25, validFrom: '2024-06-01', validTo: '2024-08-31', status: 'Active' },
-    { id: 2, name: 'Early Bird Special', code: 'EARLYBIRD', discount: 15, validFrom: '2024-01-01', validTo: '2024-12-31', status: 'Active' },
-    { id: 3, name: 'Holiday Package', code: 'HOLIDAY23', discount: 30, validFrom: '2023-12-01', validTo: '2023-12-31', status: 'Expired' },
-    { id: 4, name: 'Couples Getaway', code: 'COUPLES20', discount: 20, validFrom: '2024-02-01', validTo: '2024-02-14', status: 'Expired' },
-    { id: 5, name: 'Family Adventure', code: 'FAMILY10', discount: 10, validFrom: '2024-03-01', validTo: '2024-12-31', status: 'Active' },
-    { id: 6, name: 'Weekend Escape', code: 'WEEKEND15', discount: 15, validFrom: '2024-01-01', validTo: '2024-12-31', status: 'Active' },
-    { id: 7, name: 'Senior Citizen Discount', code: 'SENIOR30', discount: 30, validFrom: '2024-01-01', validTo: '2024-12-31', status: 'Active' },
-    { id: 8, name: 'Student Special', code: 'STUDENT20', discount: 20, validFrom: '2024-01-01', validTo: '2024-06-30', status: 'Inactive' },
-  ]);
+  const [promotions, setPromotions] = useState<Promotion[]>([]);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const rows = await getAllPromotions();
+        if (!mounted) return;
+        setPromotions(rows.map(r => ({ id: r.id, name: r.tipo, code: '', discount: r.discount || 0, validFrom: '', validTo: '', status: 'Active' })));
+      } catch (err) {
+        console.error('Failed to load promotions', err);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
 
   const itemsPerPage = 5;
   const totalPages = Math.ceil(promotions.length / itemsPerPage);
 
-  // Filtered and paginated data
+  // Filtered and paginated data (defensive)
   const filteredPromotions = promotions.filter(promo => {
-    const matchesSearch = promo.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         promo.code.toLowerCase().includes(searchTerm.toLowerCase());
+    const s = (searchTerm || '').toLowerCase();
+    const name = (promo.name || '').toLowerCase();
+    const code = (promo.code || '').toLowerCase();
+    const matchesSearch = name.includes(s) || code.includes(s);
     const matchesStatus = statusFilter === 'all' || promo.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -78,24 +85,21 @@ export function Promotions() {
   const handleDelete = (id: number) => {
     if (confirm('Are you sure you want to delete this promotion?')) {
       setPromotions(promotions.filter(promo => promo.id !== id));
+      deletePromotion(id).catch(err => console.error('Failed to delete promotion', err));
     }
   };
 
   const handleSave = () => {
     if (editingPromotion) {
       // Update existing
-      setPromotions(promotions.map(promo =>
-        promo.id === editingPromotion.id
-          ? { ...promo, ...formData }
-          : promo
-      ));
+      const updated = promotions.map(promo => promo.id === editingPromotion.id ? { ...promo, ...formData } : promo);
+      setPromotions(updated);
+      upsertPromotion(editingPromotion.id, formData.name, formData.discount).catch(err => console.error('Failed to update promotion', err));
     } else {
       // Add new
-      const newPromotion: Promotion = {
-        id: Math.max(...promotions.map(p => p.id), 0) + 1,
-        ...formData,
-      };
+      const newPromotion: Promotion = { id: Math.max(...promotions.map(p => p.id), 0) + 1, ...formData };
       setPromotions([...promotions, newPromotion]);
+      upsertPromotion(null, formData.name, formData.discount).catch(err => console.error('Failed to create promotion', err));
     }
     setIsModalOpen(false);
   };

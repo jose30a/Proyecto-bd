@@ -250,7 +250,11 @@ SELECT
 FROM generate_series(1, 10);
 
 INSERT INTO tag (nombre_tag, condicion1_tag, condicional_tag, condicion2_tag, restriccion_tag) SELECT 'Tag '||g, 'C1','AND','C2', false FROM generate_series(1,10) g;
-INSERT INTO promocion (tipo_pro) SELECT 'Descuento del ' || (g*5) || '%' FROM generate_series(1,10) g;
+INSERT INTO promocion (tipo_pro, porcen_descuento)
+SELECT 
+    'Descuento del ' || (g * 5) || '%', 
+    (g * 5)
+FROM generate_series(1, 10) g;
 INSERT INTO preferencia (descripcion_pre) VALUES ('Ventana'), ('Pasillo'), ('Comida Vegetariana'), ('Primera Clase'), ('Hotel con Piscina'), ('Vista al mar'), ('Cama King'), ('Pet Friendly'), ('Wifi de alta velocidad'), ('Transporte incluido');
 INSERT INTO telefono (cod_area_tel, numero_tel, tipo_tel, fk_cod_aer) SELECT '0414', floor(random()*8999999 + 1000000)::text, 'Movil', 1 FROM generate_series(1,10) g;
 INSERT INTO deseo (descripcion_des, fk_cod_usuario, fk_cod_lugar) SELECT 'Quiero visitar ' || nombre_lug, 1, cod_lug FROM lugar WHERE tipo_lug = 'Pais' LIMIT 10;

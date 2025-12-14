@@ -1,64 +1,46 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { getNegativeReviews, getExchangeRatesHistory, getOperatorPerformance, getRefundsAudit, getCustomerAgeDistribution, getCustomerAverageAge } from '../services/database';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
 import { Calendar, TrendingDown, DollarSign, Users, AlertCircle } from 'lucide-react';
 
 export function Reports() {
   const [dateRange, setDateRange] = useState({ start: '2024-01-01', end: '2024-12-31' });
+  // Data should come from stored procedures / functions.
+  const [negativeReviews, setNegativeReviews] = useState<any[]>([]);
+  const [exchangeRatesChart, setExchangeRatesChart] = useState<any[]>([]);
+  const [exchangeRatesTable, setExchangeRatesTable] = useState<any[]>([]);
+  const [operatorPerformance, setOperatorPerformance] = useState<any[]>([]);
+  const [refundsAudit, setRefundsAudit] = useState<any[]>([]);
+  const [averageAge, setAverageAge] = useState<number>(0);
+  const [ageDistribution, setAgeDistribution] = useState<any[]>([]);
 
-  // Mock data for Negative Reviews
-  const negativeReviews = [
-    { id: 1, date: '2024-12-08', hotelName: 'Grand Hotel Paris', rating: 1, comment: 'Poor service, room was not clean upon arrival. Very disappointing experience.' },
-    { id: 2, date: '2024-12-07', hotelName: 'Dubai Marina Resort', rating: 2, comment: 'Overpriced for the quality. Staff was unhelpful with our requests.' },
-    { id: 3, date: '2024-12-05', hotelName: 'Sydney Harbour View', rating: 1, comment: 'Noise from construction nearby. Could not sleep well during entire stay.' },
-    { id: 4, date: '2024-12-03', hotelName: 'Grand Hotel Paris', rating: 2, comment: 'Wifi did not work properly. Breakfast options were limited.' },
-    { id: 5, date: '2024-12-01', hotelName: 'Tokyo Central Inn', rating: 1, comment: 'Room amenities were broken. Management did not respond to complaints.' },
-  ];
-
-  // Mock data for Exchange Rates History
-  const exchangeRatesChart = [
-    { date: 'Jan', USD: 35.5, EUR: 38.2, USDT: 35.8 },
-    { date: 'Feb', USD: 36.1, EUR: 39.0, USDT: 36.3 },
-    { date: 'Mar', USD: 37.2, EUR: 40.1, USDT: 37.5 },
-    { date: 'Apr', USD: 38.8, EUR: 41.5, USDT: 39.0 },
-    { date: 'May', USD: 40.2, EUR: 43.0, USDT: 40.5 },
-    { date: 'Jun', USD: 41.5, EUR: 44.2, USDT: 41.8 },
-  ];
-
-  const exchangeRatesTable = [
-    { currency: 'USD', current: 41.50, previous: 40.20, change: '+3.2%' },
-    { currency: 'EUR', current: 44.20, previous: 43.00, change: '+2.8%' },
-    { currency: 'USDT', current: 41.80, previous: 40.50, change: '+3.2%' },
-  ];
-
-  // Mock data for Operator Performance
-  const operatorPerformance = [
-    { rank: 1, operator: 'Premium Tours International', revenue: 245000, serviceCost: 180000, duration: '12 months' },
-    { rank: 2, operator: 'Global Adventure Partners', revenue: 198000, serviceCost: 145000, duration: '12 months' },
-    { rank: 3, operator: 'Luxury Travel Co.', revenue: 175000, serviceCost: 130000, duration: '10 months' },
-    { rank: 4, operator: 'Express Tours Ltd.', revenue: 142000, serviceCost: 105000, duration: '12 months' },
-    { rank: 5, operator: 'Budget Travel Agency', revenue: 98000, serviceCost: 75000, duration: '8 months' },
-  ];
-
-  // Mock data for Refunds Audit
-  const refundsAudit = [
-    { reservationId: 'RES-2024-1245', totalAmount: 5000, penalty: 500, refundAmount: 4500, processDate: '2024-12-10' },
-    { reservationId: 'RES-2024-1198', totalAmount: 3200, penalty: 320, refundAmount: 2880, processDate: '2024-12-09' },
-    { reservationId: 'RES-2024-1157', totalAmount: 7500, penalty: 750, refundAmount: 6750, processDate: '2024-12-08' },
-    { reservationId: 'RES-2024-1089', totalAmount: 4300, penalty: 430, refundAmount: 3870, processDate: '2024-12-07' },
-    { reservationId: 'RES-2024-1034', totalAmount: 6100, penalty: 610, refundAmount: 5490, processDate: '2024-12-06' },
-    { reservationId: 'RES-2024-0987', totalAmount: 2800, penalty: 280, refundAmount: 2520, processDate: '2024-12-05' },
-  ];
-
-  // Mock data for Customer Demographics
-  const averageAge = 42.5;
-  const ageDistribution = [
-    { range: '18-25', count: 120 },
-    { range: '26-35', count: 280 },
-    { range: '36-45', count: 340 },
-    { range: '46-55', count: 260 },
-    { range: '56-65', count: 180 },
-    { range: '65+', count: 95 },
-  ];
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const [neg, rates, ops, refunds, ageDist, avgAge] = await Promise.all([
+          getNegativeReviews(dateRange.start, dateRange.end).catch(() => []),
+          getExchangeRatesHistory(dateRange.start, dateRange.end).catch(() => []),
+          getOperatorPerformance(dateRange.start, dateRange.end).catch(() => []),
+          getRefundsAudit(dateRange.start, dateRange.end).catch(() => []),
+          getCustomerAgeDistribution(dateRange.start, dateRange.end).catch(() => []),
+          getCustomerAverageAge(dateRange.start, dateRange.end).catch(() => 0),
+        ]);
+        if (!mounted) return;
+        setNegativeReviews(neg || []);
+        // Normalize exchange rates into chart/table shapes
+        setExchangeRatesChart((rates || []).map((r: any) => ({ date: new Date(r.p_fecha).toLocaleDateString(), USD: r.p_moneda === 'USD' ? Number(r.p_tasa_bs) : undefined })));
+        setExchangeRatesTable((rates || []).slice(0,3));
+        setOperatorPerformance(ops || []);
+        setRefundsAudit(refunds || []);
+        setAgeDistribution(ageDist || []);
+        setAverageAge(Number(avgAge) || 0);
+      } catch (err) {
+        console.error('Failed to load reports', err);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [dateRange.start, dateRange.end]);
 
   return (
     <div>
