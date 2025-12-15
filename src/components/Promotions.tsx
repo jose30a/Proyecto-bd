@@ -82,30 +82,62 @@ export function Promotions() {
     setIsModalOpen(true);
   };
 
-  const handleDelete = (id: number) => {
+  // Error state
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
+  const handleDelete = async (id: number) => {
     if (confirm('Are you sure you want to delete this promotion?')) {
-      setPromotions(promotions.filter(promo => promo.id !== id));
-      deletePromotion(id).catch(err => console.error('Failed to delete promotion', err));
+      try {
+        await deletePromotion(id);
+        setPromotions(promotions.filter(promo => promo.id !== id));
+      } catch (err: any) {
+        console.error('Failed to delete promotion', err);
+        setError(err.message || 'Failed to delete promotion');
+      }
     }
   };
 
-  const handleSave = () => {
-    if (editingPromotion) {
-      // Update existing
-      const updated = promotions.map(promo => promo.id === editingPromotion.id ? { ...promo, ...formData } : promo);
-      setPromotions(updated);
-      upsertPromotion(editingPromotion.id, formData.name, formData.discount).catch(err => console.error('Failed to update promotion', err));
-    } else {
-      // Add new
-      const newPromotion: Promotion = { id: Math.max(...promotions.map(p => p.id), 0) + 1, ...formData };
-      setPromotions([...promotions, newPromotion]);
-      upsertPromotion(null, formData.name, formData.discount).catch(err => console.error('Failed to create promotion', err));
+  const handleSave = async () => {
+    setError(null);
+    try {
+      if (editingPromotion) {
+        // Update existing
+        await upsertPromotion(editingPromotion.id, formData.name, formData.discount);
+
+        // Only update state if API succeeds
+        const updated = promotions.map(promo => promo.id === editingPromotion.id ? { ...promo, ...formData } : promo);
+        setPromotions(updated);
+      } else {
+        // Add new
+        await upsertPromotion(null, formData.name, formData.discount);
+
+        // Refresh list to get new ID (or simplistic approach: reload all)
+        // For simplicity: reload all to match DB ID
+        const rows = await getAllPromotions();
+        setPromotions(rows.map(r => ({ id: r.id, name: r.tipo, code: '', discount: r.discount || 0, validFrom: '', validTo: '', status: 'Active' })));
+      }
+      setIsModalOpen(false);
+    } catch (err: any) {
+      console.error('Failed to save promotion', err);
+      // Keep modal open to show error? Or close and show toast?
+      // User asked for "message saying user is not allowed"
+      // Show error in the main view or modal?
+      // Main view is safer if modal closes.
+      setError(err.message || 'Failed to save promotion');
+      setIsModalOpen(false);
     }
-    setIsModalOpen(false);
   };
 
   const handleCancel = () => {
     setIsModalOpen(false);
+    setError(null);
   };
 
   // Assignment state
@@ -136,6 +168,7 @@ export function Promotions() {
       }
     } catch (err) {
       console.error('Failed to load assignment data', err);
+      setError('Failed to load assignment data');
     }
   };
 
@@ -153,8 +186,9 @@ export function Promotions() {
       setAssignedServices(currentAssignments);
       // Reset dates but keep service for quick multi-assign
       setAssignFormData(prev => ({ ...prev, startDate: '', endDate: '' }));
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to assign service', err);
+      alert(err.message || 'Failed to assign service'); // Show alert for modal
     }
   };
 
@@ -163,8 +197,9 @@ export function Promotions() {
     try {
       await removePromotionFromService(selectedPromoForAssign.id, serviceId);
       setAssignedServices(prev => prev.filter(p => p.cod !== serviceId));
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to remove assignment', err);
+      alert(err.message || 'Failed to remove assignment');
     }
   };
 
@@ -181,6 +216,17 @@ export function Promotions() {
 
   return (
     <div>
+      {/* Error Alert */}
+      {error && (
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
+          <strong className="font-bold">Error: </strong>
+          <span className="block sm:inline">{error}</span>
+          <span className="absolute top-0 bottom-0 right-0 px-4 py-3" onClick={() => setError(null)}>
+            <svg className="fill-current h-6 w-6 text-red-500" role="button" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><title>Close</title><path d="M14.348 14.849a1.2 1.2 0 0 1-1.697 0L10 11.819l-2.651 3.029a1.2 1.2 0 1 1-1.697-1.697l2.758-3.15-2.759-3.152a1.2 1.2 0 1 1 1.697-1.697L10 8.183l2.651-3.031a1.2 1.2 0 1 1 1.697 1.697l-2.758 3.152 2.758 3.15a1.2 1.2 0 0 1 0 1.698z" /></svg>
+          </span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-[var(--color-text-primary)] mb-2">
@@ -241,9 +287,7 @@ export function Promotions() {
               <tr>
                 <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">ID</th>
                 <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Promotion Name</th>
-                <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Code</th>
                 <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Discount</th>
-                <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Valid Period</th>
                 <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Status</th>
                 <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Actions</th>
               </tr>
@@ -254,16 +298,7 @@ export function Promotions() {
                   <tr key={promo.id} className="hover:bg-[var(--color-background)] transition-colors">
                     <td className="px-6 py-4 text-[var(--color-text-primary)]">{promo.id}</td>
                     <td className="px-6 py-4 text-[var(--color-text-primary)]">{promo.name}</td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2 text-[var(--color-primary-blue)]">
-                        <Tag className="w-4 h-4" />
-                        <span className="font-mono">{promo.code}</span>
-                      </div>
-                    </td>
                     <td className="px-6 py-4 text-[var(--color-text-primary)]">{promo.discount}%</td>
-                    <td className="px-6 py-4 text-[var(--color-text-secondary)] text-sm">
-                      {promo.validFrom} to {promo.validTo}
-                    </td>
                     <td className="px-6 py-4">
                       <span
                         className={`inline-flex items-center px-3 py-1 rounded-full text-xs ${getStatusColor(promo.status)}`}
@@ -377,19 +412,6 @@ export function Promotions() {
 
               <div>
                 <label className="block text-[var(--color-text-primary)] mb-2">
-                  Promo Code
-                </label>
-                <input
-                  type="text"
-                  value={formData.code}
-                  onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
-                  className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all font-mono"
-                  placeholder="PROMOCODE"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[var(--color-text-primary)] mb-2">
                   Discount (%)
                 </label>
                 <input
@@ -401,31 +423,6 @@ export function Promotions() {
                   min="0"
                   max="100"
                 />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[var(--color-text-primary)] mb-2">
-                    Valid From
-                  </label>
-                  <input
-                    type="date"
-                    value={formData.validFrom}
-                    onChange={(e) => setFormData({ ...formData, validFrom: e.target.value })}
-                    className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[var(--color-text-primary)] mb-2">
-                    Valid To
-                  </label>
-                  <input
-                    type="date"
-                    value={formData.validTo}
-                    onChange={(e) => setFormData({ ...formData, validTo: e.target.value })}
-                    className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
-                  />
-                </div>
               </div>
 
               <div>

@@ -677,7 +677,32 @@ END IF;
 END;
 $$ LANGUAGE plpgsql;
 DROP PROCEDURE IF EXISTS delete_package(INTEGER) CASCADE;
-CREATE OR REPLACE PROCEDURE delete_package(p_id INTEGER) AS $$ BEGIN
+CREATE OR REPLACE PROCEDURE delete_package(p_id INTEGER) AS $$ BEGIN -- Delete dependent associations (Many-to-Many & Details)
+DELETE FROM ser_paq
+WHERE fk_paquete = p_id;
+DELETE FROM hot_paq
+WHERE fk_paquete = p_id;
+DELETE FROM res_paq
+WHERE fk_paquete = p_id;
+DELETE FROM tag_paq
+WHERE fk_paquete = p_id;
+DELETE FROM paq_paq
+WHERE fk_paquete_padre = p_id
+    OR fk_paquete_hijo = p_id;
+-- Delete user interactions
+DELETE FROM deseo
+WHERE fk_cod_paquete = p_id;
+DELETE FROM reclamo
+WHERE fk_cod_paquete = p_id;
+DELETE FROM reseña
+WHERE fk_cod_paquete = p_id;
+-- Update payments to detach them (preserve audit trail)
+UPDATE pago
+SET fk_cod_paquete = NULL
+WHERE fk_cod_paquete = p_id;
+-- Note: Payment (pago) is NOT deleted automatically to preserve financial history.
+-- If a package has payments, deletion will still fail, which is intended behavior.
+-- Finally delete the package
 DELETE FROM paquete_turistico
 WHERE cod = p_id;
 END;
@@ -721,7 +746,21 @@ SELECT CASE
     s.nombre_ser AS item_name,
     sp.inicio_ser AS inicio,
     sp.fin_ser AS fin,
-    sp.costo_ser::DECIMAL AS costo,
+    (
+        sp.costo_ser * (
+            1 - COALESCE(
+                (
+                    SELECT MAX(p.porcen_descuento)
+                    FROM pro_ser ps
+                        JOIN promocion p ON ps.fk_promocion = p.cod
+                    WHERE ps.fk_servicio = s.cod
+                        AND sp.inicio_ser >= ps.fecha_inicio
+                        AND sp.inicio_ser <= ps.fecha_fin
+                ),
+                0
+            ) / 100
+        )
+    )::DECIMAL AS costo,
     sp.millaje_ser AS millaje
 FROM ser_paq sp
     JOIN servicio s ON sp.fk_servicio = s.cod
@@ -785,7 +824,10 @@ END IF;
 END;
 $$ LANGUAGE plpgsql;
 DROP PROCEDURE IF EXISTS delete_promotion(INTEGER) CASCADE;
-CREATE OR REPLACE PROCEDURE delete_promotion(p_id INTEGER) AS $$ BEGIN
+CREATE OR REPLACE PROCEDURE delete_promotion(p_id INTEGER) AS $$ BEGIN -- First delete all promotion-service associations
+DELETE FROM pro_ser
+WHERE fk_promocion = p_id;
+-- Then delete the promotion itself
 DELETE FROM promocion
 WHERE cod = p_id;
 END;
@@ -862,7 +904,13 @@ END IF;
 END;
 $$ LANGUAGE plpgsql;
 DROP PROCEDURE IF EXISTS delete_airline(INTEGER) CASCADE;
-CREATE OR REPLACE PROCEDURE delete_airline(p_id INTEGER) AS $$ BEGIN
+CREATE OR REPLACE PROCEDURE delete_airline(p_id INTEGER) AS $$ BEGIN -- First delete all airline-service associations
+DELETE FROM ser_aer
+WHERE fk_aerolinea = p_id;
+-- Delete all phone numbers associated with the airline
+DELETE FROM telefono
+WHERE fk_cod_aer = p_id;
+-- Then delete the airline itself
 DELETE FROM aerolinea
 WHERE cod = p_id;
 END;
@@ -1929,96 +1977,20 @@ CREATE OR REPLACE PROCEDURE assign_privilege_to_role(
         p_role_id INTEGER,
         p_privilege_id INTEGER
     ) AS $$ BEGIN -- Insert if not exists (avoid duplicates)
-INSERT INTO priv_rol (fk_cod_rol, fk_cod_privilegio)
-SELECT p_role_id,
-    p_privilege_id
-WHERE NOT EXISTS (
+    IF NOT EXISTS (
         SELECT 1
         FROM priv_rol
         WHERE fk_cod_rol = p_role_id
             AND fk_cod_privilegio = p_privilege_id
-    );
+    ) THEN
+INSERT INTO priv_rol (fk_cod_rol, fk_cod_privilegio)
+VALUES (p_role_id, p_privilege_id);
+END IF;
 END;
 $$ LANGUAGE plpgsql;
 -- Procedure: Remove a privilege from a role
 DROP PROCEDURE IF EXISTS remove_privilege_from_role(INTEGER, INTEGER) CASCADE;
 CREATE OR REPLACE PROCEDURE remove_privilege_from_role(
-    p_role_id INTEGER,
-    p_privilege_id INTEGER
-) AS $$
-BEGIN
-    DELETE FROM priv_rol
-    WHERE fk_cod_rol = p_role_id AND fk_cod_privilegio = p_privilege_id;
-END;
-$$ LANGUAGE plpgsql;
-
--- =============================================
--- Promotion Service Assignment Procedures
--- =============================================
-
-DROP PROCEDURE IF EXISTS assign_promotion_to_service(INTEGER, INTEGER, DATE, DATE) CASCADE;
-CREATE OR REPLACE PROCEDURE assign_promotion_to_service(
-    p_promotion_id INTEGER,
-    p_service_id INTEGER,
-    p_start_date DATE,
-    p_end_date DATE
-)
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    -- Check if assignment already exists
-    IF EXISTS (SELECT 1 FROM pro_ser WHERE fk_promocion = p_promotion_id AND fk_servicio = p_service_id) THEN
-        UPDATE pro_ser
-        SET fecha_inicio = p_start_date, fecha_fin = p_end_date
-        WHERE fk_promocion = p_promotion_id AND fk_servicio = p_service_id;
-    ELSE
-        INSERT INTO pro_ser (fk_promocion, fk_servicio, fecha_inicio, fecha_fin)
-        VALUES (p_promotion_id, p_service_id, p_start_date, p_end_date);
-    END IF;
-END;
-$$;
-
-DROP PROCEDURE IF EXISTS remove_promotion_from_service(INTEGER, INTEGER) CASCADE;
-CREATE OR REPLACE PROCEDURE remove_promotion_from_service(
-    p_promotion_id INTEGER,
-    p_service_id INTEGER
-)
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    DELETE FROM pro_ser
-    WHERE fk_promocion = p_promotion_id AND fk_servicio = p_service_id;
-END;
-$$;
-
-DROP FUNCTION IF EXISTS get_promotion_services(INTEGER) CASCADE;
-CREATE OR REPLACE FUNCTION get_promotion_services(p_promotion_id INTEGER)
-RETURNS TABLE (
-    p_cod INTEGER,
-    p_nombre VARCHAR,
-    p_fecha_inicio DATE,
-    p_fecha_fin DATE
-)
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    RETURN QUERY
-    SELECT s.cod, s.nombre_ser, ps.fecha_inicio, ps.fecha_fin
-    FROM servicio s
-    JOIN pro_ser ps ON s.cod = ps.fk_servicio
-    WHERE ps.fk_promocion = p_promotion_id;
-END;
-$$;
-
-DROP FUNCTION IF EXISTS get_all_services() CASCADE;
-CREATE OR REPLACE FUNCTION get_all_services()
-RETURNS TABLE (p_cod INTEGER, p_nombre VARCHAR)
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    RETURN QUERY SELECT cod, nombre_ser FROM servicio ORDER BY nombre_ser;
-END;
-$$;
         p_role_id INTEGER,
         p_privilege_id INTEGER
     ) AS $$ BEGIN
@@ -2027,3 +1999,66 @@ WHERE fk_cod_rol = p_role_id
     AND fk_cod_privilegio = p_privilege_id;
 END;
 $$ LANGUAGE plpgsql;
+-- =============================================
+-- Promotion Service Assignment Procedures
+-- =============================================
+DROP PROCEDURE IF EXISTS assign_promotion_to_service(INTEGER, INTEGER, DATE, DATE) CASCADE;
+CREATE OR REPLACE PROCEDURE assign_promotion_to_service(
+        p_promotion_id INTEGER,
+        p_service_id INTEGER,
+        p_start_date DATE,
+        p_end_date DATE
+    ) LANGUAGE plpgsql AS $$ BEGIN -- Check if assignment already exists
+    IF EXISTS (
+        SELECT 1
+        FROM pro_ser
+        WHERE fk_promocion = p_promotion_id
+            AND fk_servicio = p_service_id
+    ) THEN
+UPDATE pro_ser
+SET fecha_inicio = p_start_date,
+    fecha_fin = p_end_date
+WHERE fk_promocion = p_promotion_id
+    AND fk_servicio = p_service_id;
+ELSE
+INSERT INTO pro_ser (
+        fk_promocion,
+        fk_servicio,
+        fecha_inicio,
+        fecha_fin
+    )
+VALUES (
+        p_promotion_id,
+        p_service_id,
+        p_start_date,
+        p_end_date
+    );
+END IF;
+END;
+$$;
+DROP PROCEDURE IF EXISTS remove_promotion_from_service(INTEGER, INTEGER) CASCADE;
+CREATE OR REPLACE PROCEDURE remove_promotion_from_service(
+        p_promotion_id INTEGER,
+        p_service_id INTEGER
+    ) LANGUAGE plpgsql AS $$ BEGIN
+DELETE FROM pro_ser
+WHERE fk_promocion = p_promotion_id
+    AND fk_servicio = p_service_id;
+END;
+$$;
+DROP FUNCTION IF EXISTS get_promotion_services(INTEGER) CASCADE;
+CREATE OR REPLACE FUNCTION get_promotion_services(p_promotion_id INTEGER) RETURNS TABLE (
+        p_cod INTEGER,
+        p_nombre VARCHAR,
+        p_fecha_inicio DATE,
+        p_fecha_fin DATE
+    ) LANGUAGE plpgsql AS $$ BEGIN RETURN QUERY
+SELECT s.cod,
+    s.nombre_ser,
+    ps.fecha_inicio,
+    ps.fecha_fin
+FROM servicio s
+    JOIN pro_ser ps ON s.cod = ps.fk_servicio
+WHERE ps.fk_promocion = p_promotion_id;
+END;
+$$;

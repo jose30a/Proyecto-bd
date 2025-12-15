@@ -33,6 +33,7 @@ export function UserRoleManagement() {
 
   // Track inline edits (user ID -> new role)
   const [inlineEdits, setInlineEdits] = useState<Record<number, Role>>({});
+  const [error, setError] = useState<string | null>(null);
 
   const [users, setUsers] = useState<User[]>([]);
   const [availableRoles, setAvailableRoles] = useState<string[]>(['Administrator', 'Agent', 'Client']);
@@ -55,9 +56,10 @@ export function UserRoleManagement() {
           role: u.role || 'Client',
           status: 'Active',
         })));
-      } catch (err) {
+      } catch (err: any) {
         // Keep empty list on error; server logs provide details
         console.error('Failed to fetch users', err);
+        if (mounted) setError(err.message || 'Failed to load users');
       }
     })();
     // fetch available roles
@@ -65,12 +67,20 @@ export function UserRoleManagement() {
       try {
         const roles = await getAllRoles();
         if (roles && roles.length > 0) setAvailableRoles(roles);
-      } catch (err) {
+      } catch (err: any) {
         console.warn('Could not fetch roles, using defaults', err);
+        if (mounted) setError(prev => prev || err.message || 'Failed to load roles'); // Only set if no other error
       }
     })();
     return () => { mounted = false; };
   }, []);
+
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
 
   const itemsPerPage = 8;
 
@@ -107,22 +117,28 @@ export function UserRoleManagement() {
     }));
   };
 
-  const handleSaveInlineChange = (userId: number) => {
+  const handleSaveInlineChange = async (userId: number) => {
     const newRole = inlineEdits[userId];
     if (!newRole) return;
 
-    // Optimistic update + persist to DB
-    setUsers(users.map(user => user.id === userId ? { ...user, role: newRole } : user));
-    updateUserRole(userId, newRole).catch(err => {
-      console.error('Failed to update role', err);
-    });
+    setError(null);
+    try {
+      const { updateUserRole } = await import('../services/database');
+      await updateUserRole(userId, newRole);
 
-    // Remove from pending edits
-    setInlineEdits(prev => {
-      const updated = { ...prev };
-      delete updated[userId];
-      return updated;
-    });
+      // Update local state
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
+
+      // Remove from pending edits
+      setInlineEdits(prev => {
+        const updated = { ...prev };
+        delete updated[userId];
+        return updated;
+      });
+    } catch (err: any) {
+      console.error('Failed to update role', err);
+      setError(err.message || 'Failed to update user role');
+    }
   };
 
   const handleEditClick = (user: User) => {
@@ -156,8 +172,8 @@ export function UserRoleManagement() {
         segundoApellido: modalSegundoApellido,
       });
 
-      // Update local state with new details
-      setUsers(prev => prev.map(u => u.id === editingUser.id ? {
+      // Update local state with new details ONLY after success
+      setUsers((prev: User[]) => prev.map((u: User) => u.id === editingUser.id ? {
         ...u,
         email: modalEmail,
         primerNombre: modalPrimerNombre,
@@ -165,12 +181,14 @@ export function UserRoleManagement() {
         primerApellido: modalPrimerApellido,
         segundoApellido: modalSegundoApellido,
       } : u));
-    } catch (err) {
-      console.error('Failed to update user details', err);
-    }
 
-    setIsModalOpen(false);
-    setEditingUser(null);
+      setIsModalOpen(false);
+      setEditingUser(null);
+    } catch (err: any) {
+      console.error('Failed to update user details', err);
+      setError(err.message || 'Failed to update user details');
+      // Keep modal open so user can retry
+    }
   };
 
   const handleModalCancel = () => {
@@ -213,6 +231,14 @@ export function UserRoleManagement() {
 
   return (
     <div>
+      {/* Error Alert */}
+      {error && (
+        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
+          <strong className="font-bold">Error: </strong>
+          <span className="block sm:inline">{error}</span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-[var(--color-text-primary)] mb-2">

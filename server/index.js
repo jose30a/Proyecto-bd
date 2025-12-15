@@ -107,8 +107,20 @@ app.post('/api/procedure/:procedureName', async (req, res) => {
       // Log what we'll set for auditing (helps debugging when fk_usuario is null)
       console.log(`[procedure] ${procedureName} - acting user from header/cookie:`, headerUser || 'none');
 
-      // CHECK PRIVILEGES BEFORE EXECUTION
-      if (headerUser) {
+      // 1. PUBLIC PROCEDURE CHECK
+      // If it's NOT a public procedure, we MUST have a user.
+      const { isPublicProcedure } = require('./privilege-middleware');
+      if (!isPublicProcedure(procedureName)) {
+        if (!headerUser) {
+          console.warn(`[AUTH FAILED] Anonymous access attempted for protected procedure: ${procedureName}`);
+          return res.status(401).json({
+            success: false,
+            error: 'Authentication required. Please log in.'
+          });
+        }
+
+        // 2. PRIVILEGE CHECK
+        // User is present, now check if they have the specific role/privilege
         const privilegeCheck = await checkProcedurePrivilege(procedureName, params, headerUser, pool);
 
         if (!privilegeCheck.allowed) {
@@ -249,6 +261,29 @@ app.post('/api/function/:functionName', async (req, res) => {
       // Log what we'll set for auditing (helps debugging when fk_usuario is null)
       console.log(`[function] ${functionName} - acting user from header/cookie:`, headerUser || 'none');
 
+      // 1. PUBLIC FUNCTION CHECK
+      // Certain functions don't require authentication (e.g., authenticate_user, get_all_roles for registration)
+      const { isPublicProcedure } = require('./privilege-middleware');
+      if (!isPublicProcedure(functionName)) {
+        if (!headerUser) {
+          console.warn(`[AUTH FAILED] Anonymous access attempted for protected function: ${functionName}`);
+          return res.status(401).json({
+            success: false,
+            error: 'Authentication required. Please log in.'
+          });
+        }
+
+        // 2. PRIVILEGE CHECK
+        const privilegeCheck = await checkProcedurePrivilege(functionName, params, headerUser, pool);
+        if (!privilegeCheck.allowed) {
+          return res.status(403).json({
+            success: false,
+            error: privilegeCheck.error || 'Acceso denegado',
+            requiredPrivilege: privilegeCheck.requiredPrivilege
+          });
+        }
+      }
+
       if (headerUser) {
         await client.query('BEGIN');
         inTx = true;
@@ -386,6 +421,31 @@ app.post('/api/roles/:roleId/privileges', async (req, res) => {
     const { roleId } = req.params;
     const { privilegeId } = req.body;
 
+    // Determine acting user: prefer x-user-id header, fallback to cookie 'current_user'
+    let headerUser = req.header('x-user-id');
+    if (!headerUser && req.headers && req.headers.cookie) {
+      const match = req.headers.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('current_user='));
+      if (match) headerUser = match.split('=')[1];
+    }
+
+    // Check authentication
+    if (!headerUser) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required. Please log in.'
+      });
+    }
+
+    // Check privilege
+    const privilegeCheck = await checkProcedurePrivilege('assign_privilege_to_role', [roleId, privilegeId], headerUser, pool);
+    if (!privilegeCheck.allowed) {
+      return res.status(403).json({
+        success: false,
+        error: privilegeCheck.error || 'Acceso denegado. No tienes permisos para gestionar roles.',
+        requiredPrivilege: privilegeCheck.requiredPrivilege
+      });
+    }
+
     if (!privilegeId) {
       return res.status(400).json({ success: false, error: 'privilegeId is required' });
     }
@@ -402,6 +462,32 @@ app.post('/api/roles/:roleId/privileges', async (req, res) => {
 app.delete('/api/roles/:roleId/privileges/:privilegeId', async (req, res) => {
   try {
     const { roleId, privilegeId } = req.params;
+
+    // Determine acting user: prefer x-user-id header, fallback to cookie 'current_user'
+    let headerUser = req.header('x-user-id');
+    if (!headerUser && req.headers && req.headers.cookie) {
+      const match = req.headers.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('current_user='));
+      if (match) headerUser = match.split('=')[1];
+    }
+
+    // Check authentication
+    if (!headerUser) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required. Please log in.'
+      });
+    }
+
+    // Check privilege
+    const privilegeCheck = await checkProcedurePrivilege('remove_privilege_from_role', [roleId, privilegeId], headerUser, pool);
+    if (!privilegeCheck.allowed) {
+      return res.status(403).json({
+        success: false,
+        error: privilegeCheck.error || 'Acceso denegado. No tienes permisos para gestionar roles.',
+        requiredPrivilege: privilegeCheck.requiredPrivilege
+      });
+    }
+
     await pool.query('CALL remove_privilege_from_role($1, $2)', [roleId, privilegeId]);
     res.json({ success: true, message: 'Privilege removed successfully' });
   } catch (error) {

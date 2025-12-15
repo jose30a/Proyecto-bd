@@ -19,6 +19,7 @@ export function DashboardHome() {
           headers: {
             'Content-Type': 'application/json',
           },
+          credentials: 'include',
           body: JSON.stringify({ params: [] }),
         });
         const result = await response.json();

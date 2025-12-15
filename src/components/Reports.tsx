@@ -1,17 +1,49 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { getNegativeReviews, getExchangeRatesHistory, getOperatorPerformance, getRefundsAudit, getCustomerAgeDistribution, getCustomerAverageAge } from '../services/database';
 import { FileText, Download, TrendingDown, DollarSign, Users, AlertCircle, Award } from 'lucide-react';
+
+interface NegativeReview {
+  hotelName: string;
+  date: string;
+  rating: number;
+  comment: string;
+}
+
+interface ExchangeRate {
+  p_fecha: string;
+  p_moneda: string;
+  p_tasa_bs: number;
+}
+
+interface OperatorPerformance {
+  rank: number;
+  operator: string;
+  revenue: number;
+  serviceCost: number;
+}
+
+interface RefundAudit {
+  reservationId: number;
+  totalAmount: number;
+  penalty: number;
+  refundAmount: number;
+}
+
+interface AgeDistribution {
+  range: string;
+  count: number;
+}
 
 export function Reports() {
   const [dateRange, setDateRange] = useState({ start: '2024-01-01', end: '2024-12-31' });
   const [loading, setLoading] = useState(false);
 
   // Data state
-  const [negativeReviews, setNegativeReviews] = useState<any[]>([]);
-  const [exchangeRates, setExchangeRates] = useState<any[]>([]);
-  const [operatorPerformance, setOperatorPerformance] = useState<any[]>([]);
-  const [refundsAudit, setRefundsAudit] = useState<any[]>([]);
-  const [ageDistribution, setAgeDistribution] = useState<any[]>([]);
+  const [negativeReviews, setNegativeReviews] = useState<NegativeReview[]>([]);
+  const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>([]);
+  const [operatorPerformance, setOperatorPerformance] = useState<OperatorPerformance[]>([]);
+  const [refundsAudit, setRefundsAudit] = useState<RefundAudit[]>([]);
+  const [ageDistribution, setAgeDistribution] = useState<AgeDistribution[]>([]);
   const [averageAge, setAverageAge] = useState<number>(0);
 
   // Fetch data on mount or date change
@@ -35,7 +67,7 @@ export function Reports() {
         setRefundsAudit(refunds || []);
         setAgeDistribution(ageDist || []);
         setAverageAge(Number(avgAge) || 0);
-      } catch (err) {
+      } catch (err: any) {
         console.error('Failed to load reports', err);
       } finally {
         if (mounted) setLoading(false);
@@ -66,7 +98,7 @@ export function Reports() {
         autoTable(doc, {
           startY: y,
           head: [['Hotel', 'Date', 'Rating', 'Comment']],
-          body: negativeReviews.map(r => [r.hotelName, r.date, r.rating, r.comment]),
+          body: negativeReviews.map((r: NegativeReview) => [r.hotelName, r.date, r.rating, r.comment]),
         });
         if (negativeReviews.length === 0) {
           doc.text('No data available for this period.', 14, y + 10);
@@ -78,7 +110,7 @@ export function Reports() {
         autoTable(doc, {
           startY: y,
           head: [['Date', 'Currency', 'Rate (Bs)']],
-          body: exchangeRates.map(r => [new Date(r.p_fecha).toLocaleDateString(), r.p_moneda, Number(r.p_tasa_bs).toFixed(2)]),
+          body: exchangeRates.map((r: ExchangeRate) => [new Date(r.p_fecha).toLocaleDateString(), r.p_moneda, Number(r.p_tasa_bs).toFixed(2)]),
         });
         if (exchangeRates.length === 0) {
           doc.text('No data available for this period.', 14, y + 10);
@@ -90,7 +122,7 @@ export function Reports() {
         autoTable(doc, {
           startY: y,
           head: [['Rank', 'Operator', 'Revenue', 'Cost', 'Net Profit']],
-          body: operatorPerformance.map(o => [
+          body: operatorPerformance.map((o: OperatorPerformance) => [
             o.rank,
             o.operator,
             `$${Number(o.revenue).toLocaleString()}`,
@@ -108,12 +140,12 @@ export function Reports() {
         autoTable(doc, {
           startY: y,
           head: [['ID', 'Total', 'Penalty', 'Refund', 'Date']],
-          body: refundsAudit.map(r => [
+          body: refundsAudit.map((r: RefundAudit) => [
             r.reservationId,
             `$${Number(r.totalAmount).toLocaleString()}`,
             `-$${Number(r.penalty).toLocaleString()}`,
             `$${Number(r.refundAmount).toLocaleString()}`,
-            r.processDate
+            new Date().toLocaleDateString()
           ]),
         });
         if (refundsAudit.length === 0) {
@@ -129,7 +161,7 @@ export function Reports() {
         autoTable(doc, {
           startY: y + 10,
           head: [['Age Range', 'Count']],
-          body: ageDistribution.map(a => [a.range, a.count]),
+          body: ageDistribution.map((a: AgeDistribution) => [a.range, a.count]),
         });
         if (ageDistribution.length === 0) {
           doc.text('No data available for this period.', 14, y + 25);
@@ -137,7 +169,7 @@ export function Reports() {
         doc.save('customer_demographics.pdf');
       }
 
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to generate PDF', err);
       alert('Error generating PDF. Please check console.');
     }
@@ -207,7 +239,7 @@ export function Reports() {
             <input
               type="date"
               value={dateRange.start}
-              onChange={e => setDateRange({ ...dateRange, start: e.target.value })}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDateRange({ ...dateRange, start: e.target.value })}
               className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-1 text-sm"
             />
           </div>
@@ -216,7 +248,7 @@ export function Reports() {
             <input
               type="date"
               value={dateRange.end}
-              onChange={e => setDateRange({ ...dateRange, end: e.target.value })}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setDateRange({ ...dateRange, end: e.target.value })}
               className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-1 text-sm"
             />
           </div>
@@ -224,7 +256,7 @@ export function Reports() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {reportsList.map(report => (
+        {reportsList.map((report: { id: string; title: string; description: string; icon: any; color: string; bgColor: string; count: number | string }) => (
           <div key={report.id} className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-6 hover:shadow-lg transition-shadow">
             <div className="flex items-start justify-between mb-4">
               <div className={`w-12 h-12 ${report.bgColor} rounded-lg flex items-center justify-center`}>

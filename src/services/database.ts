@@ -401,7 +401,7 @@ export async function upsertPackage(pkg: Partial<PackageItem> & { name: string }
 }
 
 export async function deletePackage(packageId: number): Promise<void> {
-  await callProcedure('delete_package', [packageId]);
+  await callProcedure('delete_package', [{ value: packageId, type: 'INTEGER' }]);
 }
 
 /**

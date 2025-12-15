@@ -132,9 +132,15 @@ export function RolePrivilegesManagement() {
 
             setPendingChanges(new Set());
             showMessage('success', 'Privilegios actualizados exitosamente');
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error saving privileges:', error);
-            showMessage('error', 'Error al guardar privilegios');
+            // Display a more meaningful error message
+            const errorMessage = error.message || 'Error al guardar privilegios. Es posible que no tengas los permisos necesarios.';
+            showMessage('error', errorMessage);
+            // Reload the privileges to reset the UI to the actual state
+            if (selectedRoleId !== null) {
+                loadRolePrivileges(selectedRoleId);
+            }
         } finally {
             setIsSaving(false);
         }
@@ -182,8 +188,8 @@ export function RolePrivilegesManagement() {
             {/* Message Banner */}
             {message && (
                 <div className={`mb-6 p-4 rounded-lg flex items-center gap-3 ${message.type === 'success'
-                        ? 'bg-green-50 border border-green-200 text-green-800'
-                        : 'bg-red-50 border border-red-200 text-red-800'
+                    ? 'bg-green-50 border border-green-200 text-green-800'
+                    : 'bg-red-50 border border-red-200 text-red-800'
                     }`}>
                     <AlertCircle className="w-5 h-5" />
                     <span>{message.text}</span>
@@ -244,8 +250,8 @@ export function RolePrivilegesManagement() {
                                                     <label
                                                         key={privilege.p_cod}
                                                         className={`flex items-center gap-3 p-3 rounded-md border cursor-pointer transition-all ${isAssigned
-                                                                ? 'bg-blue-50 border-blue-200 hover:bg-blue-100'
-                                                                : 'bg-[var(--color-background)] border-[var(--color-border)] hover:bg-gray-50'
+                                                            ? 'bg-blue-50 border-blue-200 hover:bg-blue-100'
+                                                            : 'bg-[var(--color-background)] border-[var(--color-border)] hover:bg-gray-50'
                                                             } ${isPending ? 'ring-2 ring-yellow-300' : ''
                                                             }`}
                                                     >
@@ -258,8 +264,8 @@ export function RolePrivilegesManagement() {
                                                         <div className="flex-1">
                                                             <div className="flex items-center gap-2">
                                                                 <span className={`text-sm ${isAssigned
-                                                                        ? 'text-blue-800 font-medium'
-                                                                        : 'text-[var(--color-text-primary)]'
+                                                                    ? 'text-blue-800 font-medium'
+                                                                    : 'text-[var(--color-text-primary)]'
                                                                     }`}>
                                                                     {privilege.p_descripcion_priv}
                                                                 </span>

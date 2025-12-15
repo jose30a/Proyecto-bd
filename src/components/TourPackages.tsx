@@ -62,6 +62,16 @@ export function TourPackages() {
   const [tagInput, setTagInput] = useState('');
   const [showTagSuggestions, setShowTagSuggestions] = useState(false);
 
+  // Error state
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
   // Predefined tag suggestions
   const tagSuggestions = [
     'Beach', 'Mountain', 'City', 'Adventure', 'Relaxation', 'Culture', 'Historical', 'Luxury', 'Budget', 'Family', 'Romantic', 'Wildlife', 'Food & Wine', 'Shopping', 'Cruise', 'Backpacking',
@@ -196,30 +206,41 @@ export function TourPackages() {
     }
   };
 
-  const handleDelete = (id: number) => {
+  const handleDelete = async (id: number) => {
     if (confirm('Are you sure you want to delete this package?')) {
-      setPackages(packages.filter(pkg => pkg.id !== id));
-      deletePackage(id).catch(err => console.error('Failed to delete package', err));
+      try {
+        await deletePackage(id);
+        setPackages(packages.filter(pkg => pkg.id !== id));
+      } catch (err: any) {
+        console.error('Failed to delete package', err);
+        setError(err.message || 'Failed to delete package. You may not have permission.');
+      }
     }
   };
 
-  const handleSave = () => {
-    // ... (validation logic unchanged)
+  const handleSave = async () => {
+    setError(null);
+    // Validation
     if (!formData.name.trim()) { alert('Please enter a package name'); return; }
     if (formData.totalCost <= 0) { alert('Please enter a valid total cost'); return; }
     if (formData.capacity <= 0) { alert('Please enter a valid capacity'); return; }
     if (formData.duration <= 0) { alert('Please enter a valid duration'); return; }
 
-    if (editingPackage) {
-      const updated = packages.map(pkg => pkg.id === editingPackage.id ? { ...pkg, ...formData, services, tags } : pkg);
-      setPackages(updated);
-      upsertPackage({ id: editingPackage.id, name: formData.name, description: formData.description, status: formData.status, millaje: 0, costo_millas: 0, huella: 0 }).catch(err => console.error('Failed to update package', err));
-    } else {
-      const newPackage: TourPackage = { id: Math.max(...packages.map(p => p.id), 0) + 1, ...formData, services, tags };
-      setPackages([...packages, newPackage]);
-      upsertPackage({ id: null, name: formData.name, description: formData.description, status: formData.status, millaje: 0, costo_millas: 0, huella: 0 }).catch(err => console.error('Failed to create package', err));
+    try {
+      if (editingPackage) {
+        await upsertPackage({ id: editingPackage.id, name: formData.name, description: formData.description, status: formData.status, millaje: 0, costo_millas: 0, huella: 0 });
+        const updated = packages.map(pkg => pkg.id === editingPackage.id ? { ...pkg, ...formData, services, tags } : pkg);
+        setPackages(updated);
+      } else {
+        await upsertPackage({ id: null, name: formData.name, description: formData.description, status: formData.status, millaje: 0, costo_millas: 0, huella: 0 });
+        const newPackage: TourPackage = { id: Math.max(...packages.map(p => p.id), 0) + 1, ...formData, services, tags };
+        setPackages([...packages, newPackage]);
+      }
+      setIsDetailView(false);
+    } catch (err: any) {
+      console.error('Failed to save package', err);
+      setError(err.message || 'Failed to save package. You may not have permission.');
     }
-    setIsDetailView(false);
   };
 
   const handleCancel = () => setIsDetailView(false);
@@ -306,6 +327,17 @@ export function TourPackages() {
             Manage tour packages and service configurations
           </p>
         </div>
+
+        {/* Error Alert */}
+        {error && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
+            <strong className="font-bold">Error: </strong>
+            <span className="block sm:inline">{error}</span>
+            <span className="absolute top-0 bottom-0 right-0 px-4 py-3" onClick={() => setError(null)}>
+              <svg className="fill-current h-6 w-6 text-red-500" role="button" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><title>Close</title><path d="M14.348 14.849a1.2 1.2 0 0 1-1.697 0L10 11.819l-2.651 3.029a1.2 1.2 0 1 1-1.697-1.697l2.758-3.15-2.759-3.152a1.2 1.2 0 1 1 1.697-1.697L10 8.183l2.651-3.031a1.2 1.2 0 1 1 1.697 1.697l-2.758 3.152 2.758 3.15a1.2 1.2 0 0 1 0 1.698z" /></svg>
+            </span>
+          </div>
+        )}
 
         {/* Top Bar */}
         <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg p-6 mb-6">
