@@ -1,13 +1,13 @@
 import { Outlet, NavLink, useNavigate } from 'react-router';
 import { useEffect, useState } from 'react';
 import { getCurrentUser } from '../services/database';
-import { 
-  Plane, 
-  Package, 
-  Tag, 
-  Users, 
-  Map, 
-  BarChart3, 
+import {
+  Plane,
+  Package,
+  Tag,
+  Users,
+  Map,
+  BarChart3,
   LogOut,
   User,
   Building2,
@@ -46,6 +46,7 @@ export function DashboardLayout() {
     { path: '/dashboard/promotions', label: 'Promociones', icon: Tag },
     { path: '/dashboard/roles', label: 'Roles de Usuario', icon: Shield },
     { path: '/dashboard/user-management', label: 'Gestión de Usuarios', icon: Users },
+    { path: '/dashboard/role-privileges', label: 'Gestión de Privilegios', icon: Shield },
     { path: '/dashboard/itinerary', label: 'Crear Itinerario', icon: Map },
     { path: '/dashboard/my-bookings', label: 'Mis Reservas', icon: Briefcase },
     { path: '/dashboard/reports', label: 'Reportes', icon: BarChart3 },
@@ -80,10 +81,9 @@ export function DashboardLayout() {
                   <NavLink
                     to={item.path}
                     className={({ isActive }) =>
-                      `flex items-center gap-3 px-4 py-3 rounded-md transition-colors ${
-                        isActive
-                          ? 'bg-[var(--color-primary-blue)] text-white'
-                          : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-background)] hover:text-[var(--color-text-primary)]'
+                      `flex items-center gap-3 px-4 py-3 rounded-md transition-colors ${isActive
+                        ? 'bg-[var(--color-primary-blue)] text-white'
+                        : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-background)] hover:text-[var(--color-text-primary)]'
                       }`
                     }
                   >

@@ -3,6 +3,7 @@
  * All database operations go through stored procedures
  */
 
+import { type } from 'os';
 import { callProcedure, callFunction } from './api';
 
 // ==================== Authentication ====================
@@ -388,7 +389,15 @@ export async function getAllPackages(): Promise<PackageItem[]> {
 }
 
 export async function upsertPackage(pkg: Partial<PackageItem> & { name: string }): Promise<void> {
-  await callProcedure('upsert_package', [pkg.id || null, pkg.name, pkg.description || '', pkg.status || 'Active', pkg.millaje || 0, pkg.costo_millas || 0, pkg.huella || 0]);
+  await callProcedure('upsert_package', [
+    { value: pkg.id || null, type: 'INTEGER' },
+    pkg.name,
+    pkg.description || '',
+    pkg.status || 'Active',
+    { value: pkg.millaje || 0, type: 'INTEGER' },
+    { value: pkg.costo_millas || 0, type: 'INTEGER' },
+    { value: pkg.huella || 0, type: 'DECIMAL' }
+  ]);
 }
 
 export async function deletePackage(packageId: number): Promise<void> {

@@ -1,6 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
+const { checkProcedurePrivilege } = require('./privilege-middleware');
 require('dotenv').config();
 
 const app = express();
@@ -49,7 +50,7 @@ pool.on('error', (err) => {
 app.post('/api/procedure/:procedureName', async (req, res) => {
   const { procedureName } = req.params;
   const params = req.body.params || [];
-  
+
   // Basic validation: procedure name should only contain alphanumeric, underscore, and hyphen
   if (!/^[a-zA-Z0-9_]+$/.test(procedureName)) {
     return res.status(400).json({
@@ -57,32 +58,40 @@ app.post('/api/procedure/:procedureName', async (req, res) => {
       error: 'Invalid procedure name',
     });
   }
-  
+
   try {
     // Build placeholders and types for parameters (support typed params)
     const values = [];
     const paramPlaceholders = params.length > 0
       ? params.map((p, i) => {
-          let pgType = 'TEXT';
-          let val = p;
+        let pgType = 'TEXT';
+        let val = p;
 
-          if (p && typeof p === 'object' && Object.prototype.hasOwnProperty.call(p, 'value') && Object.prototype.hasOwnProperty.call(p, 'type')) {
-            val = p.value;
-            pgType = String(p.type).toUpperCase();
-          } else if (typeof p === 'boolean') {
-            pgType = 'BOOLEAN';
-          } else if (typeof p === 'number') {
-            pgType = 'INTEGER';
-          } else {
-            pgType = 'TEXT';
-          }
+        if (p && typeof p === 'object' && Object.prototype.hasOwnProperty.call(p, 'value') && Object.prototype.hasOwnProperty.call(p, 'type')) {
+          val = p.value;
+          pgType = String(p.type).toUpperCase();
+        } else if (typeof p === 'boolean') {
+          pgType = 'BOOLEAN';
+        } else if (typeof p === 'number') {
+          pgType = 'INTEGER';
+        } else {
+          pgType = 'TEXT';
+        }
 
-          values.push(val);
-          return `$${i + 1}::${pgType}`;
-        }).join(', ')
+        values.push(val);
+        return `$${i + 1}::${pgType}`;
+      }).join(', ')
       : '';
 
     const query = `CALL ${procedureName}(${paramPlaceholders})`;
+
+    // DEBUG: Log parameters for upsert_package
+    if (procedureName === 'upsert_package') {
+      console.log('🔍 DEBUG upsert_package:');
+      console.log('  Params received:', params);
+      console.log('  Query:', query);
+      console.log('  Values:', values);
+    }
 
     // Use a dedicated client so we can SET the session parameter for triggers
     const client = await pool.connect();
@@ -97,6 +106,20 @@ app.post('/api/procedure/:procedureName', async (req, res) => {
 
       // Log what we'll set for auditing (helps debugging when fk_usuario is null)
       console.log(`[procedure] ${procedureName} - acting user from header/cookie:`, headerUser || 'none');
+
+      // CHECK PRIVILEGES BEFORE EXECUTION
+      if (headerUser) {
+        const privilegeCheck = await checkProcedurePrivilege(procedureName, params, headerUser, pool);
+
+        if (!privilegeCheck.allowed) {
+          // Release client is handled in finally block
+          return res.status(403).json({
+            success: false,
+            error: privilegeCheck.error || 'Acceso denegado',
+            requiredPrivilege: privilegeCheck.requiredPrivilege
+          });
+        }
+      }
 
       if (headerUser) {
         await client.query('BEGIN');
@@ -178,7 +201,7 @@ app.post('/api/procedure/:procedureName', async (req, res) => {
 app.post('/api/function/:functionName', async (req, res) => {
   const { functionName } = req.params;
   const params = req.body.params || [];
-  
+
   // Basic validation: function name should only contain alphanumeric, underscore, and hyphen
   if (!/^[a-zA-Z0-9_]+$/.test(functionName)) {
     return res.status(400).json({
@@ -186,30 +209,30 @@ app.post('/api/function/:functionName', async (req, res) => {
       error: 'Invalid function name',
     });
   }
-  
-    try {
+
+  try {
     // Call PostgreSQL function using SELECT
     // Support typed params objects { value, type } and basic detection: number->INTEGER, boolean->BOOLEAN, else TEXT
     const funcValues = [];
     const paramPlaceholders = params.length > 0
       ? params.map((p, i) => {
-          let pgType = 'TEXT';
-          let val = p;
+        let pgType = 'TEXT';
+        let val = p;
 
-          if (p && typeof p === 'object' && Object.prototype.hasOwnProperty.call(p, 'value') && Object.prototype.hasOwnProperty.call(p, 'type')) {
-            val = p.value;
-            pgType = String(p.type).toUpperCase();
-          } else if (typeof p === 'boolean') {
-            pgType = 'BOOLEAN';
-          } else if (typeof p === 'number') {
-            pgType = 'INTEGER';
-          } else {
-            pgType = 'TEXT';
-          }
+        if (p && typeof p === 'object' && Object.prototype.hasOwnProperty.call(p, 'value') && Object.prototype.hasOwnProperty.call(p, 'type')) {
+          val = p.value;
+          pgType = String(p.type).toUpperCase();
+        } else if (typeof p === 'boolean') {
+          pgType = 'BOOLEAN';
+        } else if (typeof p === 'number') {
+          pgType = 'INTEGER';
+        } else {
+          pgType = 'TEXT';
+        }
 
-          funcValues.push(val);
-          return `$${i + 1}::${pgType}`;
-        }).join(', ')
+        funcValues.push(val);
+        return `$${i + 1}::${pgType}`;
+      }).join(', ')
       : '';
     const query = `SELECT * FROM ${functionName}(${paramPlaceholders})`;
 
@@ -318,7 +341,7 @@ app.get('/api/me', async (req, res) => {
 
       res.json({ success: true, data: result.rows[0] });
     } catch (err) {
-      try { await client.query('ROLLBACK'); } catch (e) {}
+      try { await client.query('ROLLBACK'); } catch (e) { }
       console.error('/api/me error:', err);
       res.status(500).json({ success: false, error: err.message });
     } finally {
@@ -326,6 +349,63 @@ app.get('/api/me', async (req, res) => {
     }
   } catch (error) {
     console.error('Error in /api/me:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// =============================================
+// Privilege Management Endpoints
+// =============================================
+
+// Get all privileges
+app.get('/api/privileges', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM get_all_privileges()');
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error('Error fetching privileges:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get privileges for a specific role
+app.get('/api/roles/:roleId/privileges', async (req, res) => {
+  try {
+    const { roleId } = req.params;
+    const result = await pool.query('SELECT * FROM get_role_privileges($1)', [roleId]);
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error(`Error fetching privileges for role ${req.params.roleId}:`, error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Assign a privilege to a role
+app.post('/api/roles/:roleId/privileges', async (req, res) => {
+  try {
+    const { roleId } = req.params;
+    const { privilegeId } = req.body;
+
+    if (!privilegeId) {
+      return res.status(400).json({ success: false, error: 'privilegeId is required' });
+    }
+
+    await pool.query('CALL assign_privilege_to_role($1, $2)', [roleId, privilegeId]);
+    res.json({ success: true, message: 'Privilege assigned successfully' });
+  } catch (error) {
+    console.error(`Error assigning privilege to role ${req.params.roleId}:`, error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Remove a privilege from a role
+app.delete('/api/roles/:roleId/privileges/:privilegeId', async (req, res) => {
+  try {
+    const { roleId, privilegeId } = req.params;
+    await pool.query('CALL remove_privilege_from_role($1, $2)', [roleId, privilegeId]);
+    res.json({ success: true, message: 'Privilege removed successfully' });
+  } catch (error) {
+    console.error(`Error removing privilege from role ${req.params.roleId}:`, error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
