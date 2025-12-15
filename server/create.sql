@@ -788,7 +788,19 @@ SELECT 'restaurant'::VARCHAR,
     rp.millaje_res
 FROM res_paq rp
     JOIN restaurant r ON rp.fk_restaurant = r.cod
-WHERE rp.fk_paquete = p_package_id;
+WHERE rp.fk_paquete = p_package_id
+UNION ALL
+-- Child Packages (Itinerary)
+SELECT 'package'::VARCHAR,
+    pt.cod,
+    pt.nombre_paq,
+    NULL::DATE,
+    NULL::DATE,
+    COALESCE(pt.costo_millas_paq, 0)::DECIMAL,
+    COALESCE(pt.millaje_paq, 0)
+FROM paq_paq pp
+    JOIN paquete_turistico pt ON pp.fk_paquete_hijo = pt.cod
+WHERE pp.fk_paquete_padre = p_package_id;
 END;
 $$ LANGUAGE plpgsql;
 -- =============================================
@@ -1367,6 +1379,49 @@ WHERE fk_restaurant = p_item_id
 ELSE RAISE EXCEPTION 'Invalid item type: %',
 p_type;
 END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Procedure to add a child package (itinerary composition)
+DROP PROCEDURE IF EXISTS add_child_package(INTEGER, INTEGER) CASCADE;
+CREATE OR REPLACE PROCEDURE add_child_package(
+    p_parent_id INTEGER,
+    p_child_id INTEGER
+) AS $$
+DECLARE
+    v_exists BOOLEAN;
+BEGIN
+    -- Prevent circular reference (self-loop only check for now)
+    IF p_parent_id = p_child_id THEN
+        RAISE EXCEPTION 'Cannot add a package as a child of itself';
+    END IF;
+
+    -- Check if relationship already exists
+    SELECT EXISTS(
+        SELECT 1 FROM paq_paq
+        WHERE fk_paquete_padre = p_parent_id
+        AND fk_paquete_hijo = p_child_id
+    ) INTO v_exists;
+
+    IF v_exists THEN
+        RAISE EXCEPTION 'This package is already included in the itinerary';
+    END IF;
+
+    INSERT INTO paq_paq (fk_paquete_padre, fk_paquete_hijo)
+    VALUES (p_parent_id, p_child_id);
+END;
+$$ LANGUAGE plpgsql;
+
+-- Procedure to remove child package
+DROP PROCEDURE IF EXISTS remove_child_package(INTEGER, INTEGER) CASCADE;
+CREATE OR REPLACE PROCEDURE remove_child_package(
+    p_parent_id INTEGER,
+    p_child_id INTEGER
+) AS $$
+BEGIN
+    DELETE FROM paq_paq
+    WHERE fk_paquete_padre = p_parent_id
+    AND fk_paquete_hijo = p_child_id;
 END;
 $$ LANGUAGE plpgsql;
 -- Auditing helper + table triggers
