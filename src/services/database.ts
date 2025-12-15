@@ -491,3 +491,74 @@ export async function getCustomerAverageAge(start?: string, end?: string) {
   return rows[0]?.p_avg || 0;
 }
 
+
+// ==================== Service Management ====================
+
+export interface ServiceItem {
+  id: number;
+  name: string;
+  capacity: number;
+  number: string;
+}
+
+export interface HotelItem {
+  id: number;
+  name: string;
+  address: string;
+  type: string;
+}
+
+export async function getAllServices(): Promise<ServiceItem[]> {
+  const rows = await callFunction<any>('get_all_services', []);
+  return rows.map((r: any) => ({
+    id: r.p_cod,
+    name: r.p_nombre,
+    capacity: r.p_capacidad,
+    number: r.p_numero,
+  }));
+}
+
+export async function getAllHotels(): Promise<HotelItem[]> {
+  const rows = await callFunction<any>('get_all_hotels', []);
+  return rows.map((r: any) => ({
+    id: r.p_cod,
+    name: r.p_nombre,
+    address: r.p_direccion,
+    type: r.p_tipo,
+  }));
+}
+
+export async function getAllRestaurants(): Promise<any[]> {
+  const rows = await callFunction<any>('get_all_restaurants', []);
+  return rows.map((r: any) => ({
+    id: r.p_cod,
+    name: r.p_nombre,
+    type: r.p_tipo,
+    ambience: r.p_ambiente,
+    rating: r.p_calificacion
+  }));
+}
+
+export async function addItemToPackage(
+  pkgId: number,
+  itemId: number,
+  type: 'flight' | 'transport' | 'hotel' | 'restaurant',
+  startDate: string,
+  endDate: string
+): Promise<void> {
+  await callProcedure('add_item_to_package', [
+    pkgId,
+    itemId,
+    type,
+    { value: startDate, type: 'DATE' },
+    { value: endDate, type: 'DATE' }
+  ]);
+}
+
+export async function removeItemFromPackage(
+  pkgId: number,
+  itemId: number,
+  type: 'flight' | 'transport' | 'hotel' | 'restaurant'
+): Promise<void> {
+  await callProcedure('remove_item_from_package', [pkgId, itemId, type]);
+}
