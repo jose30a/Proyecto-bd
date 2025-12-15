@@ -378,6 +378,7 @@ FROM hot_paq hp
 WHERE random() > 0.3 -- 70% of stays get a review
 ORDER BY random() LIMIT 100;
 
+
 INSERT INTO reclamo (descripcion_rec, estado_rec, fk_cod_usuario, fk_cod_paquete)
 SELECT 'Refund not processed for cancelled tour.', 'Abierto', 1, 1;
 
@@ -386,3 +387,76 @@ INSERT INTO promocion (tipo_pro, porcen_descuento) SELECT 'Promo '||g, g*5 FROM 
 INSERT INTO preferencia (descripcion_pre) VALUES ('Ventana'), ('Pasillo');
 INSERT INTO telefono (cod_area_tel, numero_tel, tipo_tel, fk_cod_aer) SELECT '0414', '1234567', 'Movil', 1;
 INSERT INTO deseo (descripcion_des, fk_cod_usuario, fk_cod_lugar) SELECT 'Visitar '||nombre_lug, 1, cod_lug FROM lugar WHERE tipo_lug='Pais' LIMIT 10;
+
+-- =============================================
+-- 10. PRIVILEGIOS Y ASIGNACIONES POR ROL
+-- =============================================
+
+-- Insertar los 26 privilegios organizados en 7 categorías
+INSERT INTO privilegio (descripcion_priv) VALUES
+-- Airline Management (4)
+('create_airline'),
+('edit_airline'),
+('delete_airline'),
+('view_airlines'),
+
+-- Package Management (4)
+('create_package'),
+('edit_package'),
+('delete_package'),
+('view_packages'),
+
+-- Booking Management (4)
+('create_booking'),
+('edit_booking'),
+('cancel_booking'),
+('view_bookings'),
+
+-- User Management (4)
+('create_user'),
+('edit_user'),
+('delete_user'),
+('view_users'),
+
+-- Reports & Analytics (3)
+('view_reports'),
+('export_reports'),
+('view_analytics'),
+
+-- Promotions (4)
+('create_promotion'),
+('edit_promotion'),
+('delete_promotion'),
+('view_promotions'),
+
+-- System Administration (3)
+('manage_settings'),
+('manage_roles'),
+('view_audit_logs');
+
+-- Asignar TODOS los privilegios al Administrador (cod_rol = 1)
+INSERT INTO priv_rol (fk_cod_rol, fk_cod_privilegio)
+SELECT 1, cod FROM privilegio;
+
+-- Asignar privilegios al Agente (cod_rol = 5)
+-- view_users, view_reports, view_promotions, view_airlines, view_packages, create_booking, edit_booking, view_bookings
+INSERT INTO priv_rol (fk_cod_rol, fk_cod_privilegio)
+SELECT 5, cod FROM privilegio WHERE descripcion_priv IN (
+    'view_users',
+    'view_reports',
+    'view_promotions',
+    'view_airlines',
+    'view_packages',
+    'create_booking',
+    'edit_booking',
+    'view_bookings'
+);
+
+-- Asignar privilegios al Cliente (cod_rol = 2)
+-- view_packages, view_bookings, view_promotions
+INSERT INTO priv_rol (fk_cod_rol, fk_cod_privilegio)
+SELECT 2, cod FROM privilegio WHERE descripcion_priv IN (
+    'view_packages',
+    'view_bookings',
+    'view_promotions'
+);

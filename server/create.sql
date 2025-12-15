@@ -1779,3 +1779,90 @@ BEGIN
     WHERE fecha_nacimiento IS NOT NULL;
 END;
 $$ LANGUAGE plpgsql;
+-- =============================================
+-- PRIVILEGE MANAGEMENT FUNCTIONS AND PROCEDURES
+-- =============================================
+
+-- Function: Get all privileges
+DROP FUNCTION IF EXISTS get_all_privileges() CASCADE;
+CREATE OR REPLACE FUNCTION get_all_privileges()
+RETURNS TABLE (
+    p_cod INTEGER,
+    p_descripcion_priv VARCHAR
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT cod, descripcion_priv
+    FROM privilegio
+    ORDER BY cod;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function: Get privileges for a specific role
+DROP FUNCTION IF EXISTS get_role_privileges(INTEGER) CASCADE;
+CREATE OR REPLACE FUNCTION get_role_privileges(p_role_id INTEGER)
+RETURNS TABLE (
+    p_cod INTEGER,
+    p_descripcion_priv VARCHAR
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT p.cod, p.descripcion_priv
+    FROM privilegio p
+    INNER JOIN priv_rol pr ON p.cod = pr.fk_cod_privilegio
+    WHERE pr.fk_cod_rol = p_role_id
+    ORDER BY p.cod;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function: Check if a user has a specific privilege
+DROP FUNCTION IF EXISTS user_has_privilege(INTEGER, VARCHAR) CASCADE;
+CREATE OR REPLACE FUNCTION user_has_privilege(
+    p_user_id INTEGER,
+    p_privilege_name VARCHAR
+)
+RETURNS BOOLEAN AS $$
+DECLARE
+    v_has_privilege BOOLEAN;
+BEGIN
+    SELECT EXISTS (
+        SELECT 1
+        FROM usuario u
+        INNER JOIN priv_rol pr ON u.fk_cod_rol = pr.fk_cod_rol
+        INNER JOIN privilegio p ON pr.fk_cod_privilegio = p.cod
+        WHERE u.cod = p_user_id
+          AND p.descripcion_priv = p_privilege_name
+    ) INTO v_has_privilege;
+    
+    RETURN v_has_privilege;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Procedure: Assign a privilege to a role
+DROP PROCEDURE IF EXISTS assign_privilege_to_role(INTEGER, INTEGER) CASCADE;
+CREATE OR REPLACE PROCEDURE assign_privilege_to_role(
+    p_role_id INTEGER,
+    p_privilege_id INTEGER
+) AS $$
+BEGIN
+    -- Insert if not exists (avoid duplicates)
+    INSERT INTO priv_rol (fk_cod_rol, fk_cod_privilegio)
+    SELECT p_role_id, p_privilege_id
+    WHERE NOT EXISTS (
+        SELECT 1 FROM priv_rol
+        WHERE fk_cod_rol = p_role_id AND fk_cod_privilegio = p_privilege_id
+    );
+END;
+$$ LANGUAGE plpgsql;
+
+-- Procedure: Remove a privilege from a role
+DROP PROCEDURE IF EXISTS remove_privilege_from_role(INTEGER, INTEGER) CASCADE;
+CREATE OR REPLACE PROCEDURE remove_privilege_from_role(
+    p_role_id INTEGER,
+    p_privilege_id INTEGER
+) AS $$
+BEGIN
+    DELETE FROM priv_rol
+    WHERE fk_cod_rol = p_role_id AND fk_cod_privilegio = p_privilege_id;
+END;
+$$ LANGUAGE plpgsql;
