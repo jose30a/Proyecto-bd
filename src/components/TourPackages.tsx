@@ -168,7 +168,7 @@ export function TourPackages() {
       const details = await getPackageDetails(pkgId);
       const svc: Service[] = (details || []).map((d: any, idx: number) => ({
         id: d.item_id || idx,
-        type: d.item_type === 'hotel' ? 'Hotel' : (d.item_type === 'restaurant' ? 'Restaurant' : 'Flight'),
+        type: d.item_type ? (d.item_type.charAt(0).toUpperCase() + d.item_type.slice(1)) : 'Service',
         name: d.item_name,
         startDate: d.inicio || '',
         endDate: d.fin || '',
@@ -534,10 +534,9 @@ export function TourPackages() {
                     <input
                       type="number"
                       value={formData.totalCost || ''}
-                      onChange={(e) => setFormData({ ...formData, totalCost: Number(e.target.value) })}
-                      className="w-full pl-10 pr-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
+                      readOnly
+                      className="w-full pl-10 pr-4 py-2.5 bg-gray-100 border border-[var(--color-border)] rounded-md focus:outline-none cursor-not-allowed text-[var(--color-text-secondary)]"
                       placeholder="0"
-                      min="0"
                     />
                   </div>
                 </div>
@@ -570,10 +569,9 @@ export function TourPackages() {
                     <input
                       type="number"
                       value={formData.duration || ''}
-                      onChange={(e) => setFormData({ ...formData, duration: Number(e.target.value) })}
-                      className="w-full pl-10 pr-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
+                      readOnly
+                      className="w-full pl-10 pr-4 py-2.5 bg-gray-100 border border-[var(--color-border)] rounded-md focus:outline-none cursor-not-allowed text-[var(--color-text-secondary)]"
                       placeholder="0"
-                      min="0"
                     />
                   </div>
                 </div>
@@ -626,11 +624,7 @@ export function TourPackages() {
                       <tr key={service.id} className="hover:bg-[var(--color-background)] transition-colors">
                         <td className="px-6 py-3">
                           <div className="flex items-center gap-2">
-                            {service.type === 'Flight' ? (
-                              <Plane className="w-4 h-4 text-blue-600" />
-                            ) : (
-                              <Hotel className="w-4 h-4 text-purple-600" />
-                            )}
+                            {/* Icons removed as per user request */}
                             <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs ${service.type === 'Flight'
                               ? 'bg-blue-100 text-blue-700'
                               : 'bg-purple-100 text-purple-700'
@@ -784,42 +778,31 @@ export function TourPackages() {
             <div className="px-6 py-6 space-y-4">
               <div>
                 <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
-                  Service Type
+                  Select Service
                 </label>
                 <select
-                  value={newService.type}
-                  onChange={(e) => setNewService({ ...newService, type: e.target.value as any, itemId: 0 })}
+                  value={newService.itemId ? `${newService.type}-${newService.itemId}` : ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val) {
+                      const [type, idStr] = val.split('-');
+                      // Ensure type is lowercase for backend compatibility
+                      setNewService({ ...newService, type: type.toLowerCase() as any, itemId: Number(idStr) });
+                    } else {
+                      setNewService({ ...newService, itemId: 0 });
+                    }
+                  }}
                   className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
                 >
-                  <option value="Hotel">Hotel</option>
-                  <option value="Flight">Flight</option>
-                  <option value="Restaurant">Restaurant</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
-                  Select Item
-                </label>
-                <select
-                  value={newService.itemId}
-                  onChange={(e) => setNewService({ ...newService, itemId: Number(e.target.value) })}
-                  className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
-                >
-                  <option value={0}>-- Select Item --</option>
-                  {newService.type === 'Flight' ? (
-                    availableServices.map(s => (
-                      <option key={s.id} value={s.id}>{s.name} ({s.number})</option>
-                    ))
-                  ) : newService.type === 'Restaurant' ? (
-                    availableRestaurants.map(r => (
-                      <option key={r.id} value={r.id}>{r.name} ({r.type})</option>
-                    ))
-                  ) : (
-                    availableHotels.map(h => (
-                      <option key={h.id} value={h.id}>{h.name}</option>
-                    ))
-                  )}
+                  {availableServices.map(s => (
+                    <option key={`${s.type}-${s.id}`} value={`${s.type.toLowerCase()}-${s.id}`}>{s.name} ({s.number}) - {s.type}</option>
+                  ))}
+                  {availableHotels.map(h => (
+                    <option key={`Hotel-${h.id}`} value={`hotel-${h.id}`}>{h.name} - Hotel</option>
+                  ))}
+                  {availableRestaurants.map(r => (
+                    <option key={`Restaurant-${r.id}`} value={`restaurant-${r.id}`}>{r.name} ({r.type || 'N/A'}) - Restaurant</option>
+                  ))}
                 </select>
               </div>
 

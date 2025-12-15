@@ -61,15 +61,7 @@ export function DashboardHome() {
       bgColor: 'bg-purple-50',
       iconColor: 'text-purple-600',
     },
-    {
-      title: 'Ingresos Mensuales',
-      value: stats ? `$${Number(stats.monthly_revenue).toLocaleString()}` : 'Loading...',
-      change: '+15.3%',
-      trend: 'up',
-      icon: TrendingUp,
-      bgColor: 'bg-orange-50',
-      iconColor: 'text-orange-600',
-    },
+
   ];
 
   return (
@@ -85,7 +77,7 @@ export function DashboardHome() {
       </div>
 
       {/* Summary Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {summaryCards.map((card, index) => {
           const Icon = card.icon;
           return (

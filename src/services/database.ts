@@ -508,6 +508,7 @@ export interface ServiceItem {
   name: string;
   capacity: number;
   number: string;
+  type: string;
 }
 
 export interface HotelItem {
@@ -524,6 +525,7 @@ export async function getAllServices(): Promise<ServiceItem[]> {
     name: r.p_nombre,
     capacity: r.p_capacidad,
     number: r.p_numero,
+    type: r.p_tipo || 'Service',
   }));
 }
 

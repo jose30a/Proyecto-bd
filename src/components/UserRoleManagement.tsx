@@ -30,7 +30,7 @@ export function UserRoleManagement() {
   const [modalSegundoNombre, setModalSegundoNombre] = useState('');
   const [modalPrimerApellido, setModalPrimerApellido] = useState('');
   const [modalSegundoApellido, setModalSegundoApellido] = useState('');
-  
+
   // Track inline edits (user ID -> new role)
   const [inlineEdits, setInlineEdits] = useState<Record<number, Role>>({});
 
@@ -73,7 +73,7 @@ export function UserRoleManagement() {
   }, []);
 
   const itemsPerPage = 8;
-  
+
   const getFullName = (user: User): string => {
     return `${user.primerNombre} ${user.primerApellido}`;
   };
@@ -84,7 +84,7 @@ export function UserRoleManagement() {
     const fullName = (getFullName(user) || '').toLowerCase();
     const ci = (user.ci || '').toLowerCase();
     const email = (user.email || '').toLowerCase();
-    const matchesSearch = 
+    const matchesSearch =
       fullName.includes(s) ||
       ci.includes(s) ||
       email.includes(s);
@@ -94,7 +94,7 @@ export function UserRoleManagement() {
   });
 
   const totalPages = Math.ceil(filteredUsers.length / itemsPerPage);
-  
+
   const paginatedUsers = filteredUsers.slice(
     (currentPage - 1) * itemsPerPage,
     currentPage * itemsPerPage
@@ -209,11 +209,7 @@ export function UserRoleManagement() {
   };
 
   // Statistics
-  const totalUsers = users.length;
-  const activeUsers = users.filter(u => u.status === 'Active').length;
-  const adminCount = users.filter(u => u.role === 'Administrator').length;
-  const agentCount = users.filter(u => u.role === 'Agent').length;
-  const clientCount = users.filter(u => u.role === 'Client').length;
+
 
   return (
     <div>
@@ -228,47 +224,7 @@ export function UserRoleManagement() {
       </div>
 
       {/* Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-[var(--color-text-secondary)] mb-1">Total Users</p>
-              <p className="text-2xl text-[var(--color-text-primary)]">{totalUsers}</p>
-            </div>
-            <Users className="w-8 h-8 text-[var(--color-primary-blue)] opacity-50" />
-          </div>
-        </div>
 
-        <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-[var(--color-text-secondary)] mb-1">Administrators</p>
-              <p className="text-2xl text-purple-600">{adminCount}</p>
-            </div>
-            <Shield className="w-8 h-8 text-purple-600 opacity-50" />
-          </div>
-        </div>
-
-        <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-[var(--color-text-secondary)] mb-1">Agents</p>
-              <p className="text-2xl text-blue-600">{agentCount}</p>
-            </div>
-            <Users className="w-8 h-8 text-blue-600 opacity-50" />
-          </div>
-        </div>
-
-        <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm text-[var(--color-text-secondary)] mb-1">Clients</p>
-              <p className="text-2xl text-gray-600">{clientCount}</p>
-            </div>
-            <Users className="w-8 h-8 text-gray-600 opacity-50" />
-          </div>
-        </div>
-      </div>
 
       {/* Filters Bar */}
       <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg p-6 mb-6">
@@ -333,7 +289,7 @@ export function UserRoleManagement() {
                 paginatedUsers.map((user) => {
                   const currentRole = getCurrentRole(user.id);
                   const hasPendingEdit = hasInlineEdit(user.id);
-                  
+
                   return (
                     <tr key={user.id} className="hover:bg-[var(--color-background)] transition-colors">
                       {/* User Info */}
@@ -366,11 +322,10 @@ export function UserRoleManagement() {
                       {/* Status */}
                       <td className="px-6 py-4">
                         <span
-                          className={`inline-flex items-center px-3 py-1 rounded-full text-xs ${
-                            user.status === 'Active'
-                              ? 'bg-green-100 text-green-700'
-                              : 'bg-gray-100 text-gray-700'
-                          }`}
+                          className={`inline-flex items-center px-3 py-1 rounded-full text-xs ${user.status === 'Active'
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-gray-100 text-gray-700'
+                            }`}
                         >
                           {user.status}
                         </span>
@@ -381,11 +336,10 @@ export function UserRoleManagement() {
                         <select
                           value={currentRole}
                           onChange={(e) => handleInlineRoleChange(user.id, e.target.value as Role)}
-                          className={`px-3 py-2 bg-[var(--color-input-bg)] border rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] transition-all text-sm ${
-                            hasPendingEdit
-                              ? 'border-yellow-500 ring-2 ring-yellow-200'
-                              : 'border-[var(--color-border)]'
-                          }`}
+                          className={`px-3 py-2 bg-[var(--color-input-bg)] border rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] transition-all text-sm ${hasPendingEdit
+                            ? 'border-yellow-500 ring-2 ring-yellow-200'
+                            : 'border-[var(--color-border)]'
+                            }`}
                         >
                           {availableRoles.map(r => (
                             <option key={r} value={r}>{r}</option>
@@ -444,18 +398,17 @@ export function UserRoleManagement() {
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
-              
+
               {[...Array(Math.min(totalPages, 5))].map((_, index) => {
                 const pageNum = index + 1;
                 return (
                   <button
                     key={pageNum}
                     onClick={() => setCurrentPage(pageNum)}
-                    className={`px-4 py-2 rounded-md transition-colors ${
-                      currentPage === pageNum
-                        ? 'bg-[var(--color-primary-blue)] text-white'
-                        : 'border border-[var(--color-border)] hover:bg-[var(--color-background)] text-[var(--color-text-primary)]'
-                    }`}
+                    className={`px-4 py-2 rounded-md transition-colors ${currentPage === pageNum
+                      ? 'bg-[var(--color-primary-blue)] text-white'
+                      : 'border border-[var(--color-border)] hover:bg-[var(--color-background)] text-[var(--color-text-primary)]'
+                      }`}
                   >
                     {pageNum}
                   </button>

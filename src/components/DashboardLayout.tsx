@@ -44,7 +44,7 @@ export function DashboardLayout() {
     { path: '/dashboard/airlines', label: 'Gestión de Aerolíneas', icon: Plane },
     { path: '/dashboard/packages', label: 'Paquetes Turísticos', icon: Package },
     { path: '/dashboard/promotions', label: 'Promociones', icon: Tag },
-    { path: '/dashboard/roles', label: 'Roles de Usuario', icon: Shield },
+
     { path: '/dashboard/user-management', label: 'Gestión de Usuarios', icon: Users },
     { path: '/dashboard/role-privileges', label: 'Gestión de Privilegios', icon: Shield },
     { path: '/dashboard/itinerary', label: 'Crear Itinerario', icon: Map },
