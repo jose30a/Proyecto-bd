@@ -6,7 +6,7 @@ import { DashboardHome } from "./components/DashboardHome";
 import { AirlineManagement } from "./components/AirlineManagement";
 import { TourPackages } from "./components/TourPackages";
 import { Promotions } from "./components/Promotions";
-import { UserRoles } from "./components/UserRoles";
+
 import { UserRoleManagement } from "./components/UserRoleManagement";
 import { RolePrivilegesManagement } from "./components/RolePrivilegesManagement";
 import { BuildItinerary } from "./components/BuildItinerary";
@@ -26,7 +26,7 @@ export const router = createBrowserRouter([
       { path: "airlines", Component: AirlineManagement },
       { path: "packages", Component: TourPackages },
       { path: "promotions", Component: Promotions },
-      { path: "roles", Component: UserRoles },
+
       { path: "user-management", Component: UserRoleManagement },
       { path: "role-privileges", Component: RolePrivilegesManagement },
       { path: "itinerary", Component: BuildItinerary },
