@@ -1943,6 +1943,82 @@ $$ LANGUAGE plpgsql;
 -- Procedure: Remove a privilege from a role
 DROP PROCEDURE IF EXISTS remove_privilege_from_role(INTEGER, INTEGER) CASCADE;
 CREATE OR REPLACE PROCEDURE remove_privilege_from_role(
+    p_role_id INTEGER,
+    p_privilege_id INTEGER
+) AS $$
+BEGIN
+    DELETE FROM priv_rol
+    WHERE fk_cod_rol = p_role_id AND fk_cod_privilegio = p_privilege_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- =============================================
+-- Promotion Service Assignment Procedures
+-- =============================================
+
+DROP PROCEDURE IF EXISTS assign_promotion_to_service(INTEGER, INTEGER, DATE, DATE) CASCADE;
+CREATE OR REPLACE PROCEDURE assign_promotion_to_service(
+    p_promotion_id INTEGER,
+    p_service_id INTEGER,
+    p_start_date DATE,
+    p_end_date DATE
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    -- Check if assignment already exists
+    IF EXISTS (SELECT 1 FROM pro_ser WHERE fk_promocion = p_promotion_id AND fk_servicio = p_service_id) THEN
+        UPDATE pro_ser
+        SET fecha_inicio = p_start_date, fecha_fin = p_end_date
+        WHERE fk_promocion = p_promotion_id AND fk_servicio = p_service_id;
+    ELSE
+        INSERT INTO pro_ser (fk_promocion, fk_servicio, fecha_inicio, fecha_fin)
+        VALUES (p_promotion_id, p_service_id, p_start_date, p_end_date);
+    END IF;
+END;
+$$;
+
+DROP PROCEDURE IF EXISTS remove_promotion_from_service(INTEGER, INTEGER) CASCADE;
+CREATE OR REPLACE PROCEDURE remove_promotion_from_service(
+    p_promotion_id INTEGER,
+    p_service_id INTEGER
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    DELETE FROM pro_ser
+    WHERE fk_promocion = p_promotion_id AND fk_servicio = p_service_id;
+END;
+$$;
+
+DROP FUNCTION IF EXISTS get_promotion_services(INTEGER) CASCADE;
+CREATE OR REPLACE FUNCTION get_promotion_services(p_promotion_id INTEGER)
+RETURNS TABLE (
+    p_cod INTEGER,
+    p_nombre VARCHAR,
+    p_fecha_inicio DATE,
+    p_fecha_fin DATE
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT s.cod, s.nombre_ser, ps.fecha_inicio, ps.fecha_fin
+    FROM servicio s
+    JOIN pro_ser ps ON s.cod = ps.fk_servicio
+    WHERE ps.fk_promocion = p_promotion_id;
+END;
+$$;
+
+DROP FUNCTION IF EXISTS get_all_services() CASCADE;
+CREATE OR REPLACE FUNCTION get_all_services()
+RETURNS TABLE (p_cod INTEGER, p_nombre VARCHAR)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY SELECT cod, nombre_ser FROM servicio ORDER BY nombre_ser;
+END;
+$$;
         p_role_id INTEGER,
         p_privilege_id INTEGER
     ) AS $$ BEGIN

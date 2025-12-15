@@ -442,13 +442,41 @@ export async function getAllPromotions(): Promise<PromotionItem[]> {
   return rows.map((r: any) => ({ id: r.p_cod, tipo: r.p_tipo_pro, discount: Number(r.p_porcen_descuento) || 0 }));
 }
 
-export async function upsertPromotion(id: number | null, tipo: string, discount: number | null = null): Promise<void> {
-  await callProcedure('upsert_promotion', [id || null, tipo, discount || 0]);
+export async function upsertPromotion(id: number | null, tipo: string, discount: number): Promise<void> {
+  await callProcedure('upsert_promotion', [id, tipo, discount]);
 }
 
 export async function deletePromotion(id: number): Promise<void> {
   await callProcedure('delete_promotion', [id]);
 }
+
+
+// --- Promotion-Service Assignment Functions ---
+
+
+export async function getPromotionServices(promoId: number): Promise<AssignedService[]> {
+  const response = await callFunction('get_promotion_services', [promoId]);
+  return response.map((r: any) => ({
+    cod: r.p_cod,
+    nombre: r.p_nombre,
+    fecha_inicio: r.p_fecha_inicio,
+    fecha_fin: r.p_fecha_fin
+  }));
+}
+
+export async function assignPromotionToService(promoId: number, serviceId: number, startDate: string, endDate: string) {
+  await callProcedure('assign_promotion_to_service', [
+    promoId,
+    serviceId,
+    { value: startDate, type: 'DATE' },
+    { value: endDate, type: 'DATE' }
+  ]);
+}
+
+export async function removePromotionFromService(promoId: number, serviceId: number) {
+  await callProcedure('remove_promotion_from_service', [promoId, serviceId]);
+}
+
 
 // ==================== Reports ====================
 
@@ -502,6 +530,14 @@ export async function getCustomerAverageAge(start?: string, end?: string) {
 
 
 // ==================== Service Management ====================
+
+// Re-export AssignedService here or move it
+export interface AssignedService {
+  cod: number;
+  nombre: string;
+  fecha_inicio: string;
+  fecha_fin: string;
+}
 
 export interface ServiceItem {
   id: number;

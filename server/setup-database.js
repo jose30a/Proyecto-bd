@@ -14,7 +14,7 @@
 const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
-require('dotenv').config();
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
@@ -42,17 +42,17 @@ async function runSqlFile(filePath, description = '') {
     if (description) {
       console.log(`   ${description}`);
     }
-    
+
     const sql = fs.readFileSync(filePath, 'utf8');
-    
+
     if (!sql.trim()) {
       console.log(`⚠️  File is empty, skipping...`);
       return;
     }
-    
+
     console.log(`⚙️  Executing SQL statements...`);
     await pool.query(sql);
-    
+
     console.log(`✅ Successfully executed: ${filePath}`);
   } catch (error) {
     console.error(`❌ Error executing ${filePath}:`, error.message);
@@ -147,28 +147,28 @@ function showUsage() {
 async function setupDatabase() {
   try {
     console.log('🚀 Starting database setup...\n');
-    
+
     // Check if database connection works
     await pool.query('SELECT 1');
     console.log('✅ Database connection successful');
-    
+
     // Parse arguments
     const filesToRun = parseArguments();
-    
+
     if (!filesToRun) {
       showUsage();
       process.exit(0);
     }
-    
+
     // Run SQL files in order
     for (const fileInfo of filesToRun) {
-      const filePath = path.isAbsolute(fileInfo.path) 
-        ? fileInfo.path 
+      const filePath = path.isAbsolute(fileInfo.path)
+        ? fileInfo.path
         : path.join(__dirname, fileInfo.path);
-      
+
       await runSqlFile(filePath, fileInfo.description);
     }
-    
+
     console.log('\n✨ Database setup completed successfully!');
     process.exit(0);
   } catch (error) {

@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { getAllPromotions, upsertPromotion, deletePromotion } from '../services/database';
+import React, { useState, useEffect } from 'react';
+import { getAllPromotions, upsertPromotion, deletePromotion, getAllServices, getPromotionServices, assignPromotionToService, removePromotionFromService } from '../services/database';
 import { Search, Plus, Edit2, Trash2, ChevronLeft, ChevronRight, Tag } from 'lucide-react';
 
 interface Promotion {
@@ -18,7 +18,7 @@ export function Promotions() {
   const [currentPage, setCurrentPage] = useState(1);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingPromotion, setEditingPromotion] = useState<Promotion | null>(null);
-  
+
   // Form state
   const [formData, setFormData] = useState({
     name: '',
@@ -106,6 +106,66 @@ export function Promotions() {
 
   const handleCancel = () => {
     setIsModalOpen(false);
+  };
+
+  // Assignment state
+  const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+  const [selectedPromoForAssign, setSelectedPromoForAssign] = useState<Promotion | null>(null);
+  const [availableServices, setAvailableServices] = useState<{ id: number, name: string }[]>([]);
+  const [assignedServices, setAssignedServices] = useState<any[]>([]);
+  const [assignFormData, setAssignFormData] = useState({
+    serviceId: 0,
+    startDate: '',
+    endDate: '',
+  });
+
+  const handleOpenAssign = async (promo: Promotion) => {
+    setSelectedPromoForAssign(promo);
+    setIsAssignModalOpen(true);
+    // Load services and current assignments
+    try {
+      const [services, currentAssignments] = await Promise.all([
+        getAllServices(),
+        getPromotionServices(promo.id)
+      ]);
+      setAvailableServices(services);
+      setAssignedServices(currentAssignments);
+      // Default to first service if available
+      if (services.length > 0) {
+        setAssignFormData(prev => ({ ...prev, serviceId: services[0].id }));
+      }
+    } catch (err) {
+      console.error('Failed to load assignment data', err);
+    }
+  };
+
+  const handleAssignSubmit = async () => {
+    if (!selectedPromoForAssign || !assignFormData.serviceId) return;
+    try {
+      await assignPromotionToService(
+        selectedPromoForAssign.id,
+        assignFormData.serviceId,
+        assignFormData.startDate,
+        assignFormData.endDate
+      );
+      // Refresh assignments
+      const currentAssignments = await getPromotionServices(selectedPromoForAssign.id);
+      setAssignedServices(currentAssignments);
+      // Reset dates but keep service for quick multi-assign
+      setAssignFormData(prev => ({ ...prev, startDate: '', endDate: '' }));
+    } catch (err) {
+      console.error('Failed to assign service', err);
+    }
+  };
+
+  const handleRemoveAssignment = async (serviceId: number) => {
+    if (!selectedPromoForAssign || !confirm('Remove this assignment?')) return;
+    try {
+      await removePromotionFromService(selectedPromoForAssign.id, serviceId);
+      setAssignedServices(prev => prev.filter(p => p.cod !== serviceId));
+    } catch (err) {
+      console.error('Failed to remove assignment', err);
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -214,6 +274,13 @@ export function Promotions() {
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2">
                         <button
+                          onClick={() => handleOpenAssign(promo)}
+                          className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
+                          title="Assign to Service"
+                        >
+                          <Tag className="w-4 h-4" />
+                        </button>
+                        <button
                           onClick={() => handleEdit(promo)}
                           className="p-2 text-[var(--color-primary-blue)] hover:bg-blue-50 rounded-md transition-colors"
                           title="Edit"
@@ -256,16 +323,15 @@ export function Promotions() {
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
-              
+
               {[...Array(totalPages)].map((_, index) => (
                 <button
                   key={index + 1}
                   onClick={() => setCurrentPage(index + 1)}
-                  className={`px-4 py-2 rounded-md transition-colors ${
-                    currentPage === index + 1
-                      ? 'bg-[var(--color-primary-blue)] text-white'
-                      : 'border border-[var(--color-border)] hover:bg-[var(--color-background)] text-[var(--color-text-primary)]'
-                  }`}
+                  className={`px-4 py-2 rounded-md transition-colors ${currentPage === index + 1
+                    ? 'bg-[var(--color-primary-blue)] text-white'
+                    : 'border border-[var(--color-border)] hover:bg-[var(--color-background)] text-[var(--color-text-primary)]'
+                    }`}
                 >
                   {index + 1}
                 </button>
@@ -392,6 +458,81 @@ export function Promotions() {
               >
                 Save
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Overlay for Assign Service */}
+      {isAssignModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-[var(--color-card)] rounded-lg shadow-xl max-w-lg w-full">
+            <div className="px-6 py-4 border-b border-[var(--color-border)]">
+              <h2 className="text-[var(--color-text-primary)]">
+                Assign to Service
+              </h2>
+            </div>
+            <div className="px-6 py-6 space-y-4">
+              <div>
+                <label className="block text-[var(--color-text-primary)] mb-2">Select Service</label>
+                <select
+                  className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md"
+                  value={assignFormData.serviceId}
+                  onChange={e => setAssignFormData({ ...assignFormData, serviceId: Number(e.target.value) })}
+                >
+                  {availableServices.map(s => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[var(--color-text-primary)] mb-2">Start Date</label>
+                  <input
+                    type="date"
+                    className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md"
+                    value={assignFormData.startDate}
+                    onChange={e => setAssignFormData({ ...assignFormData, startDate: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[var(--color-text-primary)] mb-2">End Date</label>
+                  <input
+                    type="date"
+                    className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md"
+                    value={assignFormData.endDate}
+                    onChange={e => setAssignFormData({ ...assignFormData, endDate: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end mt-4">
+                <button
+                  onClick={handleAssignSubmit}
+                  className="px-4 py-2 bg-[var(--color-primary-blue)] text-white rounded-md hover:bg-[var(--color-primary-blue-hover)]"
+                >
+                  Assign
+                </button>
+              </div>
+
+              {/* List of currently assigned */}
+              {assignedServices.length > 0 && (
+                <div className="mt-6 border-t border-[var(--color-border)] pt-4">
+                  <h3 className="font-medium mb-2 text-[var(--color-text-primary)]">Assigned Services</h3>
+                  <div className="space-y-2 max-h-40 overflow-y-auto">
+                    {assignedServices.map(as => (
+                      <div key={as.cod} className="flex justify-between items-center text-sm p-2 bg-[var(--color-background)] rounded">
+                        <span className="text-[var(--color-text-primary)]">{as.nombre} ({as.fecha_inicio ? as.fecha_inicio.split('T')[0] : ''} - {as.fecha_fin ? as.fecha_fin.split('T')[0] : ''})</span>
+                        <button onClick={() => handleRemoveAssignment(as.cod)} className="text-red-500 hover:text-red-700">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="px-6 py-4 border-t border-[var(--color-border)] flex justify-end">
+              <button onClick={() => setIsAssignModalOpen(false)} className="px-4 py-2 border border-[var(--color-border)] rounded hover:bg-[var(--color-background)] text-[var(--color-text-primary)]">Close</button>
             </div>
           </div>
         </div>
