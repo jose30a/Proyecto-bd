@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Check, Search, ShoppingCart, User, CreditCard, DollarSign, Package, Plane, Hotel, Plus, Trash2, ChevronRight, ChevronLeft, Calendar, Users, X } from 'lucide-react';
-import { getAllPackages, getPackageDetails } from '../services/database';
+import { getAllPackages, getPackageDetails, createPackageReturningId, addChildPackage, getCurrentUser } from '../services/database';
 
 interface ServiceItem {
   id: number;
@@ -68,6 +68,13 @@ export function BuildItinerary() {
     zellePhone: '',
   });
 
+  const [mode, setMode] = useState<'booking' | 'itinerary'>('booking');
+
+  const [itineraryDetails, setItineraryDetails] = useState({
+    name: '',
+    description: '',
+  });
+
   const [packages, setPackages] = useState<PackageItem[]>([]);
   const [services, setServices] = useState<ServiceItem[]>([]);
 
@@ -106,10 +113,14 @@ export function BuildItinerary() {
     return () => { mounted = false; };
   }, []);
 
-  const steps = [
+  const steps = mode === 'booking' ? [
     { number: 1, title: 'Selection', icon: ShoppingCart },
     { number: 2, title: 'Passenger Details', icon: User },
     { number: 3, title: 'Payment', icon: CreditCard },
+  ] : [
+    { number: 1, title: 'Selection', icon: ShoppingCart },
+    { number: 2, title: 'Itinerary Details', icon: Package },
+    { number: 3, title: 'Review & Save', icon: Check },
   ];
 
   // Filter items based on search (defensive)
@@ -132,7 +143,7 @@ export function BuildItinerary() {
   const handleAddPackageToCart = (pkg: PackageItem) => {
     const cartId = `pkg-${pkg.id}`;
     const existing = cart.find(item => item.id === cartId);
-    
+
     if (existing) {
       setCart(cart.map(item =>
         item.id === cartId ? { ...item, quantity: item.quantity + 1 } : item
@@ -171,7 +182,7 @@ export function BuildItinerary() {
   const handleAddServiceToCart = (service: ServiceItem) => {
     const cartId = `svc-${service.id}`;
     const existing = cart.find(item => item.id === cartId);
-    
+
     if (existing) {
       setCart(cart.map(item =>
         item.id === cartId ? { ...item, quantity: item.quantity + 1 } : item
@@ -223,6 +234,66 @@ export function BuildItinerary() {
     ));
   };
 
+  const handleCreateItinerary = async () => {
+    if (!itineraryDetails.name || !itineraryDetails.description) {
+      alert('Please provide a name and description for the itinerary.');
+      return;
+    }
+
+    try {
+      let totalMileage = 0;
+      let totalCost = 0;
+
+      cart.forEach(item => {
+        totalCost += item.price * item.quantity;
+        totalMileage += 0;
+      });
+
+      // Use a default user ID if not available (ideally fetch current user)
+      const currentUser = await getCurrentUser().catch(() => null);
+      const userId = currentUser?.cod || 1;
+
+      const parentId = await createPackageReturningId(
+        itineraryDetails.name,
+        itineraryDetails.description,
+        'Active',
+        totalMileage,
+        totalCost,
+        0,
+        userId
+      );
+
+      if (!parentId) throw new Error('Failed to create itinerary package');
+
+      // Add Children
+      for (const item of cart) {
+        if (item.itemType === 'package') {
+          const childId = parseInt(item.id.replace('pkg-', ''), 10);
+          if (!isNaN(childId)) {
+            // Add package multiple times if quantity > 1? 
+            // For now, iterate quantity
+            for (let i = 0; i < item.quantity; i++) {
+              // Wait, paq_paq might enforce unique constraint (PK on parent,child). 
+              // If so, we can only add once. Assuming paq_paq is (padre, hijo).
+              // If duplicate allowed? The procedure checks "SELECT EXISTS".
+              // So we can only add once.
+              if (i === 0) await addChildPackage(parentId, childId);
+            }
+          }
+        }
+      }
+
+      alert('Itinerary created successfully!');
+      setCart([]);
+      setItineraryDetails({ name: '', description: '' });
+      setCurrentStep(1);
+
+    } catch (err) {
+      console.error(err);
+      alert('Failed to create itinerary. See console for details.');
+    }
+  };
+
   const handleNext = () => {
     // Validation for each step
     if (currentStep === 1) {
@@ -230,18 +301,31 @@ export function BuildItinerary() {
         alert('Please add at least one package or service to your cart');
         return;
       }
-    } else if (currentStep === 2) {
+    } else if (mode === 'booking' && currentStep === 2) {
       // Validate passenger details
       for (const passenger of passengers) {
         if (!passenger.firstName.trim() || !passenger.lastName.trim() ||
-            !passenger.passportNumber.trim() || !passenger.dob) {
+          !passenger.passportNumber.trim() || !passenger.dob) {
           alert('Please fill in all passenger details');
           return;
         }
       }
+    } else if (mode === 'itinerary' && currentStep === 2) {
+      if (!itineraryDetails.name.trim() || !itineraryDetails.description.trim()) {
+        alert('Please fill in itinerary name and description');
+        return;
+      }
     }
-    
-    setCurrentStep(currentStep + 1);
+
+    // Final Step Action vs Next Step
+    const isLastStep = (mode === 'booking' && currentStep === 3) || (mode === 'itinerary' && currentStep === 3);
+
+    if (isLastStep) {
+      if (mode === 'booking') handleSubmit();
+      else handleCreateItinerary();
+    } else {
+      setCurrentStep(currentStep + 1);
+    }
   };
 
   const handleBack = () => {
@@ -252,7 +336,7 @@ export function BuildItinerary() {
     // Validate payment details
     if (paymentDetails.method === 'Credit Card') {
       if (!paymentDetails.cardNumber || !paymentDetails.cardHolder ||
-          !paymentDetails.expiryDate || !paymentDetails.cvv) {
+        !paymentDetails.expiryDate || !paymentDetails.cvv) {
         alert('Please fill in all credit card details');
         return;
       }
@@ -264,7 +348,7 @@ export function BuildItinerary() {
     }
 
     alert('Booking completed successfully!\n\nTotal: $' + totalCost.toLocaleString() + '\nPassengers: ' + passengers.length + '\nPayment Method: ' + paymentDetails.method);
-    
+
     // Reset wizard
     setCurrentStep(1);
     setCart([]);
@@ -304,13 +388,12 @@ export function BuildItinerary() {
               <div key={step.number} className="flex items-center flex-1">
                 <div className="flex flex-col items-center flex-1">
                   <div
-                    className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
-                      isCompleted
-                        ? 'bg-green-500 text-white'
-                        : isActive
+                    className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${isCompleted
+                      ? 'bg-green-500 text-white'
+                      : isActive
                         ? 'bg-[var(--color-primary-blue)] text-white'
                         : 'bg-[var(--color-background)] text-[var(--color-text-secondary)] border-2 border-[var(--color-border)]'
-                    }`}
+                      }`}
                   >
                     {isCompleted ? (
                       <Check className="w-6 h-6" />
@@ -319,22 +402,20 @@ export function BuildItinerary() {
                     )}
                   </div>
                   <p
-                    className={`mt-2 text-sm ${
-                      isActive
-                        ? 'text-[var(--color-primary-blue)]'
-                        : 'text-[var(--color-text-secondary)]'
-                    }`}
+                    className={`mt-2 text-sm ${isActive
+                      ? 'text-[var(--color-primary-blue)]'
+                      : 'text-[var(--color-text-secondary)]'
+                      }`}
                   >
                     {step.title}
                   </p>
                 </div>
                 {index < steps.length - 1 && (
                   <div
-                    className={`h-0.5 flex-1 mx-4 ${
-                      currentStep > step.number
-                        ? 'bg-green-500'
-                        : 'bg-[var(--color-border)]'
-                    }`}
+                    className={`h-0.5 flex-1 mx-4 ${currentStep > step.number
+                      ? 'bg-green-500'
+                      : 'bg-[var(--color-border)]'
+                      }`}
                   />
                 )}
               </div>
@@ -347,12 +428,42 @@ export function BuildItinerary() {
       <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg">
         {/* Step 1: Selection */}
         {currentStep === 1 && (
-          <div>
-            <div className="px-6 py-4 border-b border-[var(--color-border)]">
-              <h2 className="text-[var(--color-text-primary)]">Step 1: Select Packages & Services</h2>
-              <p className="text-sm text-[var(--color-text-secondary)] mt-1">
-                Search and add packages or individual services to your cart
-              </p>
+          <>
+            {/* Header */}
+            <div className="bg-[var(--color-card)] border-b border-[var(--color-border)] p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h1 className="text-2xl font-bold text-[var(--color-text-primary)] font-heading">
+                  {mode === 'booking' ? 'Build Your Trip' : 'Create Custom Itinerary'}
+                </h1>
+                <p className="text-[var(--color-text-secondary)] mt-1">
+                  {mode === 'booking'
+                    ? 'Select packages and services to book for your trip'
+                    : 'Combine multiple packages into a new custom itinerary'}
+                </p>
+              </div>
+
+              <div className="flex bg-[var(--color-background)] p-1 rounded-lg border border-[var(--color-border)]">
+                <button
+                  onClick={() => { setMode('booking'); setCurrentStep(1); setCart([]); }}
+                  className={`px-4 py-2 text-sm rounded-md transition-all flex items-center gap-2 font-medium ${mode === 'booking'
+                    ? 'bg-[var(--color-primary-blue)] text-white shadow-sm'
+                    : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
+                    }`}
+                >
+                  <ShoppingCart className="w-4 h-4" />
+                  Booking
+                </button>
+                <button
+                  onClick={() => { setMode('itinerary'); setCurrentStep(1); setCart([]); }}
+                  className={`px-4 py-2 text-sm rounded-md transition-all flex items-center gap-2 font-medium ${mode === 'itinerary'
+                    ? 'bg-[var(--color-primary-blue)] text-white shadow-sm'
+                    : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]'
+                    }`}
+                >
+                  <Package className="w-4 h-4" />
+                  Create Itinerary
+                </button>
+              </div>
             </div>
 
             <div className="p-6">
@@ -445,11 +556,10 @@ export function BuildItinerary() {
                                   ) : (
                                     <Hotel className="w-4 h-4 text-purple-600" />
                                   )}
-                                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs ${
-                                    service.type === 'Flight'
-                                      ? 'bg-blue-100 text-blue-700'
-                                      : 'bg-purple-100 text-purple-700'
-                                  }`}>
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs ${service.type === 'Flight'
+                                    ? 'bg-blue-100 text-blue-700'
+                                    : 'bg-purple-100 text-purple-700'
+                                    }`}>
                                     {service.type}
                                   </span>
                                 </div>
@@ -478,10 +588,10 @@ export function BuildItinerary() {
                   {((searchType === 'all' && filteredPackages.length === 0 && filteredServices.length === 0) ||
                     (searchType === 'packages' && filteredPackages.length === 0) ||
                     (searchType === 'services' && filteredServices.length === 0)) && (
-                    <div className="text-center py-12 text-[var(--color-text-secondary)]">
-                      No results found
-                    </div>
-                  )}
+                      <div className="text-center py-12 text-[var(--color-text-secondary)]">
+                        No results found
+                      </div>
+                    )}
                 </div>
 
                 {/* Cart - Right 1/3 */}
@@ -496,7 +606,7 @@ export function BuildItinerary() {
                         </span>
                       </div>
                     </div>
-                    
+
                     <div className="p-4 space-y-3 max-h-[500px] overflow-y-auto">
                       {cart.length > 0 ? (
                         cart.map(item => (
@@ -554,265 +664,338 @@ export function BuildItinerary() {
                 </div>
               </div>
             </div>
-          </div>
+          </>
         )}
 
-        {/* Step 2: Passenger Details */}
+        {/* Step 2: Passenger Details or Itinerary Details */}
         {currentStep === 2 && (
           <div>
             <div className="px-6 py-4 border-b border-[var(--color-border)]">
-              <h2 className="text-[var(--color-text-primary)]">Step 2: Passenger Details</h2>
+              <h2 className="text-[var(--color-text-primary)]">
+                {mode === 'booking' ? 'Step 2: Passenger Details' : 'Step 2: Itinerary Details'}
+              </h2>
               <p className="text-sm text-[var(--color-text-secondary)] mt-1">
-                Enter information for all passengers
+                {mode === 'booking' ? 'Enter information for all passengers' : 'Provide a name and description for your new itinerary'}
               </p>
             </div>
 
             <div className="p-6">
-              <div className="max-w-4xl mx-auto space-y-4">
-                {passengers.map((passenger, index) => (
-                  <div key={passenger.id} className="border border-[var(--color-border)] rounded-lg p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-[var(--color-text-primary)] flex items-center gap-2">
-                        <User className="w-5 h-5 text-[var(--color-primary-blue)]" />
-                        Passenger {index + 1}
-                      </h3>
-                      {passengers.length > 1 && (
-                        <button
-                          onClick={() => handleRemovePassenger(passenger.id)}
-                          className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors"
-                          title="Remove passenger"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
+              {mode === 'booking' ? (
+                <div className="max-w-4xl mx-auto space-y-4">
+                  {passengers.map((passenger: Passenger, index: number) => (
+                    <div key={passenger.id} className="border border-[var(--color-border)] rounded-lg p-6">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-[var(--color-text-primary)] flex items-center gap-2">
+                          <User className="w-5 h-5 text-[var(--color-primary-blue)]" />
+                          Passenger {index + 1}
+                        </h3>
+                        {passengers.length > 1 && (
+                          <button
+                            onClick={() => handleRemovePassenger(passenger.id)}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors"
+                            title="Remove passenger"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
+                            First Name <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={passenger.firstName}
+                            onChange={(e) => handlePassengerChange(passenger.id, 'firstName', e.target.value)}
+                            className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
+                            placeholder="Enter first name"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
+                            Last Name <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={passenger.lastName}
+                            onChange={(e) => handlePassengerChange(passenger.id, 'lastName', e.target.value)}
+                            className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
+                            placeholder="Enter last name"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
+                            Passport Number <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={passenger.passportNumber}
+                            onChange={(e) => handlePassengerChange(passenger.id, 'passportNumber', e.target.value)}
+                            className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
+                            placeholder="Enter passport number"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
+                            Date of Birth <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="date"
+                            value={passenger.dob}
+                            onChange={(e) => handlePassengerChange(passenger.id, 'dob', e.target.value)}
+                            className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
+                          />
+                        </div>
+                      </div>
                     </div>
+                  ))}
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
-                          First Name <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={passenger.firstName}
-                          onChange={(e) => handlePassengerChange(passenger.id, 'firstName', e.target.value)}
-                          className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
-                          placeholder="Enter first name"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
-                          Last Name <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={passenger.lastName}
-                          onChange={(e) => handlePassengerChange(passenger.id, 'lastName', e.target.value)}
-                          className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
-                          placeholder="Enter last name"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
-                          Passport Number <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={passenger.passportNumber}
-                          onChange={(e) => handlePassengerChange(passenger.id, 'passportNumber', e.target.value)}
-                          className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
-                          placeholder="Enter passport number"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
-                          Date of Birth <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          type="date"
-                          value={passenger.dob}
-                          onChange={(e) => handlePassengerChange(passenger.id, 'dob', e.target.value)}
-                          className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
-                        />
-                      </div>
-                    </div>
+                  <button
+                    onClick={handleAddPassenger}
+                    className="w-full py-3 border-2 border-dashed border-[var(--color-border)] rounded-lg text-[var(--color-text-secondary)] hover:border-[var(--color-primary-blue)] hover:text-[var(--color-primary-blue)] transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Plus className="w-5 h-5" />
+                    Add Another Passenger
+                  </button>
+                </div>
+              ) : (
+                <div className="max-w-2xl mx-auto space-y-6">
+                  <div>
+                    <label className="block text-[var(--color-text-primary)] mb-2 text-sm font-medium">
+                      Itinerary Name <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={itineraryDetails.name}
+                      onChange={(e) => setItineraryDetails({ ...itineraryDetails, name: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
+                      placeholder="e.g., Summer Vacation 2025"
+                    />
                   </div>
-                ))}
-
-                <button
-                  onClick={handleAddPassenger}
-                  className="w-full py-3 border-2 border-dashed border-[var(--color-border)] rounded-lg text-[var(--color-text-secondary)] hover:border-[var(--color-primary-blue)] hover:text-[var(--color-primary-blue)] transition-colors flex items-center justify-center gap-2"
-                >
-                  <Plus className="w-5 h-5" />
-                  Add Another Passenger
-                </button>
-              </div>
+                  <div>
+                    <label className="block text-[var(--color-text-primary)] mb-2 text-sm font-medium">
+                      Description <span className="text-red-500">*</span>
+                    </label>
+                    <textarea
+                      value={itineraryDetails.description}
+                      onChange={(e) => setItineraryDetails({ ...itineraryDetails, description: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all h-32 resize-none"
+                      placeholder="Describe your trip plan..."
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
 
-        {/* Step 3: Payment */}
+        {/* Step 3: Payment or Review */}
         {currentStep === 3 && (
           <div>
             <div className="px-6 py-4 border-b border-[var(--color-border)]">
-              <h2 className="text-[var(--color-text-primary)]">Step 3: Payment Information</h2>
+              <h2 className="text-[var(--color-text-primary)]">
+                {mode === 'booking' ? 'Step 3: Payment Information' : 'Step 3: Review & Save'}
+              </h2>
               <p className="text-sm text-[var(--color-text-secondary)] mt-1">
-                Complete your booking by providing payment details
+                {mode === 'booking' ? 'Complete your booking by providing payment details' : 'Review your itinerary details before saving'}
               </p>
             </div>
 
             <div className="p-6">
               <div className="max-w-4xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Payment Form - Left 2/3 */}
+                {/* Left Column */}
                 <div className="lg:col-span-2 space-y-6">
-                  {/* Payment Method Selection */}
-                  <div>
-                    <label className="block text-[var(--color-text-primary)] mb-3 text-sm">
-                      Payment Method <span className="text-red-500">*</span>
-                    </label>
-                    <div className="grid grid-cols-3 gap-3">
-                      {(['Credit Card', 'Cash', 'Zelle'] as const).map(method => (
-                        <button
-                          key={method}
-                          onClick={() => setPaymentDetails({ ...paymentDetails, method })}
-                          className={`px-4 py-3 border-2 rounded-lg transition-all text-sm ${
-                            paymentDetails.method === method
-                              ? 'border-[var(--color-primary-blue)] bg-blue-50 text-[var(--color-primary-blue)]'
-                              : 'border-[var(--color-border)] hover:border-[var(--color-primary-blue)] text-[var(--color-text-primary)]'
-                          }`}
-                        >
-                          {method}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Credit Card Fields */}
-                  {paymentDetails.method === 'Credit Card' && (
-                    <div className="border border-[var(--color-border)] rounded-lg p-6 space-y-4">
-                      <h3 className="text-[var(--color-text-primary)] flex items-center gap-2 mb-4">
-                        <CreditCard className="w-5 h-5 text-[var(--color-primary-blue)]" />
-                        Credit Card Details
-                      </h3>
-                      
+                  {mode === 'booking' ? (
+                    <>
+                      {/* Payment Method Selection */}
                       <div>
-                        <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
-                          Card Number <span className="text-red-500">*</span>
+                        <label className="block text-[var(--color-text-primary)] mb-3 text-sm">
+                          Payment Method <span className="text-red-500">*</span>
                         </label>
-                        <input
-                          type="text"
-                          value={paymentDetails.cardNumber}
-                          onChange={(e) => setPaymentDetails({ ...paymentDetails, cardNumber: e.target.value })}
-                          className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
-                          placeholder="1234 5678 9012 3456"
-                          maxLength={19}
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
-                          Card Holder Name <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={paymentDetails.cardHolder}
-                          onChange={(e) => setPaymentDetails({ ...paymentDetails, cardHolder: e.target.value })}
-                          className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
-                          placeholder="John Doe"
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
-                            Expiry Date <span className="text-red-500">*</span>
-                          </label>
-                          <input
-                            type="text"
-                            value={paymentDetails.expiryDate}
-                            onChange={(e) => setPaymentDetails({ ...paymentDetails, expiryDate: e.target.value })}
-                            className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
-                            placeholder="MM/YY"
-                            maxLength={5}
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
-                            CVV <span className="text-red-500">*</span>
-                          </label>
-                          <input
-                            type="text"
-                            value={paymentDetails.cvv}
-                            onChange={(e) => setPaymentDetails({ ...paymentDetails, cvv: e.target.value })}
-                            className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
-                            placeholder="123"
-                            maxLength={4}
-                          />
+                        <div className="grid grid-cols-3 gap-3">
+                          {(['Credit Card', 'Cash', 'Zelle'] as const).map(method => (
+                            <button
+                              key={method}
+                              onClick={() => setPaymentDetails({ ...paymentDetails, method })}
+                              className={`px-4 py-3 border-2 rounded-lg transition-all text-sm ${paymentDetails.method === method
+                                ? 'border-[var(--color-primary-blue)] bg-blue-50 text-[var(--color-primary-blue)]'
+                                : 'border-[var(--color-border)] hover:border-[var(--color-primary-blue)] text-[var(--color-text-primary)]'
+                                }`}
+                            >
+                              {method}
+                            </button>
+                          ))}
                         </div>
                       </div>
-                    </div>
-                  )}
 
-                  {/* Cash Payment */}
-                  {paymentDetails.method === 'Cash' && (
-                    <div className="border border-[var(--color-border)] rounded-lg p-6">
-                      <div className="flex items-start gap-3">
-                        <DollarSign className="w-6 h-6 text-green-600 mt-1" />
-                        <div>
-                          <h3 className="text-[var(--color-text-primary)] mb-2">Cash Payment</h3>
-                          <p className="text-sm text-[var(--color-text-secondary)]">
-                            The client will pay in cash at our office. Please ensure to collect the total amount of <strong>${totalCost.toLocaleString()}</strong> before finalizing the booking.
+                      {/* Credit Card Fields */}
+                      {paymentDetails.method === 'Credit Card' && (
+                        <div className="border border-[var(--color-border)] rounded-lg p-6 space-y-4">
+                          <h3 className="text-[var(--color-text-primary)] flex items-center gap-2 mb-4">
+                            <CreditCard className="w-5 h-5 text-[var(--color-primary-blue)]" />
+                            Credit Card Details
+                          </h3>
+
+                          <div>
+                            <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
+                              Card Number <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                              type="text"
+                              value={paymentDetails.cardNumber}
+                              onChange={(e) => setPaymentDetails({ ...paymentDetails, cardNumber: e.target.value })}
+                              className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
+                              placeholder="1234 5678 9012 3456"
+                              maxLength={19}
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
+                              Card Holder Name <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                              type="text"
+                              value={paymentDetails.cardHolder}
+                              onChange={(e) => setPaymentDetails({ ...paymentDetails, cardHolder: e.target.value })}
+                              className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
+                              placeholder="John Doe"
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
+                                Expiry Date <span className="text-red-500">*</span>
+                              </label>
+                              <input
+                                type="text"
+                                value={paymentDetails.expiryDate}
+                                onChange={(e) => setPaymentDetails({ ...paymentDetails, expiryDate: e.target.value })}
+                                className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
+                                placeholder="MM/YY"
+                                maxLength={5}
+                              />
+                            </div>
+
+                            <div>
+                              <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
+                                CVV <span className="text-red-500">*</span>
+                              </label>
+                              <input
+                                type="text"
+                                value={paymentDetails.cvv}
+                                onChange={(e) => setPaymentDetails({ ...paymentDetails, cvv: e.target.value })}
+                                className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
+                                placeholder="123"
+                                maxLength={4}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Cash Payment */}
+                      {paymentDetails.method === 'Cash' && (
+                        <div className="border border-[var(--color-border)] rounded-lg p-6">
+                          <div className="flex items-start gap-3">
+                            <DollarSign className="w-6 h-6 text-green-600 mt-1" />
+                            <div>
+                              <h3 className="text-[var(--color-text-primary)] mb-2">Cash Payment</h3>
+                              <p className="text-sm text-[var(--color-text-secondary)]">
+                                The client will pay in cash at our office. Please ensure to collect the total amount of <strong>${totalCost.toLocaleString()}</strong> before finalizing the booking.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Zelle Payment */}
+                      {paymentDetails.method === 'Zelle' && (
+                        <div className="border border-[var(--color-border)] rounded-lg p-6 space-y-4">
+                          <h3 className="text-[var(--color-text-primary)] flex items-center gap-2 mb-4">
+                            <DollarSign className="w-5 h-5 text-[var(--color-primary-blue)]" />
+                            Zelle Payment Details
+                          </h3>
+
+                          <div>
+                            <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
+                              Zelle Email
+                            </label>
+                            <input
+                              type="email"
+                              value={paymentDetails.zelleEmail}
+                              onChange={(e) => setPaymentDetails({ ...paymentDetails, zelleEmail: e.target.value })}
+                              className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
+                              placeholder="email@example.com"
+                            />
+                          </div>
+
+                          <div className="text-center text-sm text-[var(--color-text-secondary)]">
+                            OR
+                          </div>
+
+                          <div>
+                            <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
+                              Zelle Phone Number
+                            </label>
+                            <input
+                              type="tel"
+                              value={paymentDetails.zellePhone}
+                              onChange={(e) => setPaymentDetails({ ...paymentDetails, zellePhone: e.target.value })}
+                              className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
+                              placeholder="+1 (555) 123-4567"
+                            />
+                          </div>
+
+                          <p className="text-xs text-[var(--color-text-secondary)] italic">
+                            * Please provide either email or phone number for Zelle payment
                           </p>
                         </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Zelle Payment */}
-                  {paymentDetails.method === 'Zelle' && (
+                      )}
+                    </>
+                  ) : (
                     <div className="border border-[var(--color-border)] rounded-lg p-6 space-y-4">
-                      <h3 className="text-[var(--color-text-primary)] flex items-center gap-2 mb-4">
-                        <DollarSign className="w-5 h-5 text-[var(--color-primary-blue)]" />
-                        Zelle Payment Details
-                      </h3>
-                      
-                      <div>
-                        <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
-                          Zelle Email
-                        </label>
-                        <input
-                          type="email"
-                          value={paymentDetails.zelleEmail}
-                          onChange={(e) => setPaymentDetails({ ...paymentDetails, zelleEmail: e.target.value })}
-                          className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
-                          placeholder="email@example.com"
-                        />
-                      </div>
+                      <h3 className="text-lg font-medium text-[var(--color-text-primary)] mb-2">Itinerary Summary</h3>
 
-                      <div className="text-center text-sm text-[var(--color-text-secondary)]">
-                        OR
-                      </div>
+                      <div className="space-y-4">
+                        <div>
+                          <span className="text-sm text-[var(--color-text-secondary)] block">Itinerary Name</span>
+                          <span className="text-base text-[var(--color-text-primary)] font-medium">{itineraryDetails.name}</span>
+                        </div>
 
-                      <div>
-                        <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
-                          Zelle Phone Number
-                        </label>
-                        <input
-                          type="tel"
-                          value={paymentDetails.zellePhone}
-                          onChange={(e) => setPaymentDetails({ ...paymentDetails, zellePhone: e.target.value })}
-                          className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
-                          placeholder="+1 (555) 123-4567"
-                        />
-                      </div>
+                        <div>
+                          <span className="text-sm text-[var(--color-text-secondary)] block">Description</span>
+                          <p className="text-sm text-[var(--color-text-primary)] mt-1 bg-[var(--color-background)] p-3 rounded border border-[var(--color-border)]">
+                            {itineraryDetails.description}
+                          </p>
+                        </div>
 
-                      <p className="text-xs text-[var(--color-text-secondary)] italic">
-                        * Please provide either email or phone number for Zelle payment
-                      </p>
+                        <div>
+                          <span className="text-sm text-[var(--color-text-secondary)] block mb-2">Selected Packages ({cart.filter((i: CartItem) => i.itemType === 'package').length})</span>
+                          <div className="space-y-2">
+                            {cart.filter((i: CartItem) => i.itemType === 'package').map((pkg: CartItem) => (
+                              <div key={pkg.id} className="flex items-center gap-3 p-3 bg-[var(--color-background)] border border-[var(--color-border)] rounded-md">
+                                <Package className="w-5 h-5 text-[var(--color-primary-blue)]" />
+                                <div>
+                                  <div className="text-sm font-medium text-[var(--color-text-primary)]">{pkg.name}</div>
+                                  <div className="text-xs text-[var(--color-text-secondary)]">{pkg.quantity} unit(s)</div>
+                                </div>
+                              </div>
+                            ))}
+                            {cart.filter((i: CartItem) => i.itemType === 'package').length === 0 && (
+                              <div className="text-sm text-yellow-600 bg-yellow-50 p-3 rounded border border-yellow-200">
+                                No packages selected. Please add packages to your itinerary.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -821,15 +1004,18 @@ export function BuildItinerary() {
                 <div className="lg:col-span-1">
                   <div className="bg-[var(--color-background)] border border-[var(--color-border)] rounded-lg sticky top-6">
                     <div className="px-4 py-3 border-b border-[var(--color-border)]">
-                      <h3 className="text-[var(--color-text-primary)]">Order Summary</h3>
+                      <h3 className="text-[var(--color-text-primary)]">
+                        {mode === 'booking' ? 'Order Summary' : 'Itinerary Total'}
+                      </h3>
                     </div>
-                    
+
                     <div className="p-4 space-y-4">
                       {/* Cart Items Summary */}
                       <div>
                         <p className="text-sm text-[var(--color-text-secondary)] mb-2">Items:</p>
                         <div className="space-y-2">
-                          {cart.map(item => (
+                          {cart.length === 0 && <span className="text-sm text-[var(--color-text-secondary)]">No items</span>}
+                          {cart.map((item: CartItem) => (
                             <div key={item.id} className="flex items-start justify-between text-sm">
                               <div className="flex-1 pr-2">
                                 <span className="text-[var(--color-text-primary)]">{item.name}</span>
@@ -861,12 +1047,14 @@ export function BuildItinerary() {
                         </div>
                       </div>
 
-                      <div className="border-t border-[var(--color-border)] pt-4">
-                        <div className="flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
-                          <Users className="w-4 h-4" />
-                          <span>{passengers.length} passenger(s)</span>
+                      {mode === 'booking' && (
+                        <div className="border-t border-[var(--color-border)] pt-4">
+                          <div className="flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
+                            <Users className="w-4 h-4" />
+                            <span>{passengers.length} passenger(s)</span>
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -896,11 +1084,11 @@ export function BuildItinerary() {
             </button>
           ) : (
             <button
-              onClick={handleSubmit}
+              onClick={mode === 'booking' ? handleSubmit : handleCreateItinerary}
               className="px-6 py-2.5 bg-green-600 hover:bg-green-700 text-white rounded-md transition-colors flex items-center gap-2"
             >
               <Check className="w-5 h-5" />
-              Complete Booking
+              {mode === 'booking' ? 'Complete Booking' : 'Create Itinerary'}
             </button>
           )}
         </div>

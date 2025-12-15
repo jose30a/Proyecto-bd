@@ -609,3 +609,36 @@ export async function removeItemFromPackage(
 ): Promise<void> {
   await callProcedure('remove_item_from_package', [pkgId, itemId, type]);
 }
+
+export async function addChildPackage(parentId: number, childId: number): Promise<void> {
+  await callProcedure('add_child_package', [parentId, childId]);
+}
+
+export async function removeChildPackage(parentId: number, childId: number): Promise<void> {
+  await callProcedure('remove_child_package', [parentId, childId]);
+}
+
+/**
+ * Create a package and return its ID (for itinerary creation)
+ * Calls function: create_package_returning_id(...)
+ */
+export async function createPackageReturningId(
+  name: string,
+  desc: string,
+  status: string,
+  millaje: number,
+  costo: number,
+  huella: number,
+  userId: number
+): Promise<number> {
+  const result = await callFunction<any>('create_package_returning_id', [
+    name,
+    desc,
+    status,
+    { value: millaje, type: 'INTEGER' },
+    { value: costo, type: 'INTEGER' },
+    { value: huella, type: 'DECIMAL' },
+    { value: userId, type: 'INTEGER' }
+  ]);
+  return result[0]?.create_package_returning_id;
+}
