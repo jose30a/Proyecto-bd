@@ -1,36 +1,27 @@
 import { useState, useEffect, useRef } from 'react';
 import { Search, Plus, Edit2, Trash2, ChevronLeft, ChevronRight, Phone } from 'lucide-react';
-import { getAllAirlines, getAirlineContacts, upsertAirline, deleteAirline, upsertContactNumber } from '../services/database';
+import { getAllAirlines, getAirlineContacts, upsertAirline, deleteAirline, upsertContactNumber, getCountries } from '../services/database';
 
 interface ContactNumber {
   id: number;
   countryCode: string;
   number: string;
-  type: 'Office' | 'Fax';
+  type: 'Office' | 'Fax' | 'Movil';
 }
 
 interface Airline {
   id: string;
   name: string;
-  originCountry: string;
-  originCity: string;
+  originType: 'Nacional' | 'Internacional';
+  fkLug?: number;
+  fkLugPadre?: number; // Parent location ID (Country) if fkLug is a City
+  originLocationName?: string;
+  raw?: any; // Debug field
   status: 'Active' | 'Inactive';
   contactNumbers: ContactNumber[];
 }
 
-// Mock data for cascading dropdowns
-const locationData: Record<string, string[]> = {
-  'Venezuela': ['Caracas', 'Maracaibo', 'Valencia', 'Barquisimeto', 'Maracay'],
-  'United States': ['New York', 'Los Angeles', 'Chicago', 'Houston', 'Miami'],
-  'Colombia': ['Bogotá', 'Medellín', 'Cali', 'Barranquilla', 'Cartagena'],
-  'Mexico': ['Mexico City', 'Guadalajara', 'Monterrey', 'Cancún', 'Tijuana'],
-  'Brazil': ['São Paulo', 'Rio de Janeiro', 'Brasília', 'Salvador', 'Fortaleza'],
-  'Argentina': ['Buenos Aires', 'Córdoba', 'Rosario', 'Mendoza', 'La Plata'],
-  'Spain': ['Madrid', 'Barcelona', 'Valencia', 'Seville', 'Bilbao'],
-  'United Kingdom': ['London', 'Manchester', 'Birmingham', 'Glasgow', 'Liverpool'],
-  'Germany': ['Berlin', 'Munich', 'Frankfurt', 'Hamburg', 'Cologne'],
-  'France': ['Paris', 'Marseille', 'Lyon', 'Toulouse', 'Nice'],
-};
+
 
 export function AirlineManagement() {
   const [searchTerm, setSearchTerm] = useState('');
@@ -38,42 +29,76 @@ export function AirlineManagement() {
   const [currentPage, setCurrentPage] = useState(1);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingAirline, setEditingAirline] = useState<Airline | null>(null);
-  
+
   // Form state
+  // NEW: Updated to match new schema
   const [formData, setFormData] = useState({
     name: '',
-    originCountry: '',
-    originCity: '',
+    originType: 'Internacional' as 'Nacional' | 'Internacional',
+    fkLug: 0,
     status: 'Active' as 'Active' | 'Inactive',
   });
+
+  const [selectedOriginCountry, setSelectedOriginCountry] = useState<number>(0); // Triggers city load
 
   const [contactNumbers, setContactNumbers] = useState<ContactNumber[]>([
     { id: 1, countryCode: '', number: '', type: 'Office' as 'Office' | 'Fax' },
   ]);
 
   const [airlines, setAirlines] = useState<Airline[]>([]);
+  const [countries, setCountries] = useState<{ cod_lug: number; nombre_lug: string }[]>([]);
+  const [cities, setCities] = useState<{ cod_lug: number; nombre_lug: string }[]>([]);
 
   const mountedRef = useRef(true);
+
+  // Load countries for dropdown
+  useEffect(() => {
+    getCountries().then(data => {
+      if (mountedRef.current) setCountries(data || []);
+    }).catch(console.error);
+  }, []);
+
+  // Load cities when country changes
+  useEffect(() => {
+    if (selectedOriginCountry) {
+      // Dynamic import to avoid circular dependency issues if any
+      import('../services/database').then(db => {
+        db.getCities(selectedOriginCountry).then(data => {
+          if (mountedRef.current) setCities(data || []);
+        }).catch(console.error);
+      });
+    } else {
+      setCities([]);
+    }
+  }, [selectedOriginCountry]);
+
 
   // Reusable loader so we can refresh after upserts/deletes
   const loadAirlines = async () => {
     try {
       const rows = await getAllAirlines();
       if (!mountedRef.current) return;
+
       const mapped = await Promise.all(rows.map(async (r: any) => {
-        const idStr = String(r.id ?? r.p_cod ?? '');
-        const originCountry = r.origin_country ?? r.p_origen_aer ?? '';
-        const originCity = r.origin_city ?? r.p_lugar_nombre ?? r.p_origen_aer ?? '';
-        const contacts = await getAirlineContacts(idStr).catch(() => []);
+        const idStr = String(r.id ?? r.cod ?? '');
+        const contacts = await getAirlineContacts(parseInt(idStr) || 0).catch(() => []);
         return {
           id: idStr,
-          name: r.name ?? r.p_nombre ?? '',
-          originCountry,
-          originCity,
-          status: r.status ?? 'Active',
-          contactNumbers: (contacts || []).map((c: any) => ({ id: c.p_cod, countryCode: c.p_cod_area || '', number: c.p_numero || '', type: c.p_tipo || 'Office' })),
+          name: r.name,
+          originType: r.originType ?? 'Internacional',
+          fkLug: r.fkLug,
+          fkLugPadre: r.fkLugPadre,
+          originLocationName: r.originLocationName,
+          status: 'Active',
+          contactNumbers: (contacts || []).map((c: any) => ({
+            id: c.cod_cont ?? c.p_cod,
+            countryCode: String(c.cod_area ?? c.p_cod_area ?? ''),
+            number: String(c.numero ?? c.p_numero ?? ''),
+            type: c.tipo ?? c.p_tipo ?? 'Office'
+          })),
         } as Airline;
       }));
+
       if (!mountedRef.current) return;
       setAirlines(mapped);
     } catch (err) {
@@ -94,9 +119,9 @@ export function AirlineManagement() {
   const filteredAirlines = airlines.filter(airline => {
     const s = (searchTerm || '').toLowerCase();
     const name = (airline.name || '').toLowerCase();
-    const idStr = String(airline.id ?? '').toLowerCase();
-    const originCity = (airline.originCity || '').toLowerCase();
-    const matchesSearch = name.includes(s) || idStr.includes(s) || originCity.includes(s);
+    const locationName = (airline.originLocationName || '').toLowerCase();
+
+    const matchesSearch = name.includes(s) || locationName.includes(s);
     const matchesStatus = statusFilter === 'all' || airline.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
@@ -108,8 +133,8 @@ export function AirlineManagement() {
 
   const handleAddNew = () => {
     setEditingAirline(null);
-    setFormData({ name: '', originCountry: '', originCity: '', status: 'Active' });
-    setContactNumbers([{ id: 1, countryCode: '', number: '', type: 'Office' }]);
+    setFormData({ name: '', originType: 'Internacional', fkLug: 0, status: 'Active' });
+    setContactNumbers([{ id: 1, countryCode: '', number: '', type: 'Oficina' }]);
     setIsModalOpen(true);
   };
 
@@ -117,8 +142,8 @@ export function AirlineManagement() {
     setEditingAirline(airline);
     setFormData({
       name: airline.name,
-      originCountry: airline.originCountry,
-      originCity: airline.originCity,
+      originType: airline.originType,
+      fkLug: airline.fkLug || 0,
       status: airline.status,
     });
     setContactNumbers(airline.contactNumbers || []);
@@ -144,12 +169,8 @@ export function AirlineManagement() {
       alert('Please enter an airline name');
       return;
     }
-    if (!formData.originCountry) {
-      alert('Please select a country');
-      return;
-    }
-    if (!formData.originCity) {
-      alert('Please select a city');
+    if (!formData.fkLug) {
+      alert('Please select an origin country');
       return;
     }
 
@@ -163,14 +184,41 @@ export function AirlineManagement() {
     }
 
     try {
-      if (editingAirline) {
-        // Update existing - call upsert and then upsert contacts
-        await upsertAirline({ id: editingAirline.id, name: formData.name, origin_country: formData.originCountry, origin_city: formData.originCity, status: formData.status });
-        await Promise.all(validContactNumbers.map(c => upsertContactNumber({ id: c.id || null, airline_id: editingAirline.id, country_code: c.countryCode, number: c.number, type: c.type })));
-      } else {
-        // Create new - let backend assign id, then refresh
-        await upsertAirline({ id: null, name: formData.name, origin_country: formData.originCountry, origin_city: formData.originCity, status: formData.status });
+      // First, upsert the airline
+      await upsertAirline({
+        id: editingAirline ? parseInt(editingAirline.id) : null,
+        name: formData.name,
+        origin_type: formData.originType,
+        fk_lug: formData.fkLug,
+        status: formData.status
+      });
+
+      // Reload airlines to get the newly created airline ID (if new)
+      await loadAirlines();
+
+      // Find the airline we just created/updated by name
+      const allAirlines = await getAllAirlines();
+      // Defensive check to avoid crash if finding fails
+      const savedAirline = allAirlines.find((a: any) => a.nombre === formData.name || a.p_nombre === formData.name);
+
+      if (savedAirline) {
+        const airlineId = String(savedAirline.id || savedAirline.cod || savedAirline.p_cod);
+
+        // Get existing contact IDs for this airline (from when we loaded it for editing)
+        const existingContactIds = editingAirline ? editingAirline.contactNumbers.map(c => c.id) : [];
+
+        // Save all contact numbers
+        await Promise.all(validContactNumbers.map(c => upsertContactNumber({
+          // Only pass the ID if it's an existing contact from the database
+          id: existingContactIds.includes(c.id) ? c.id : null,
+          airline_id: airlineId,
+          country_code: c.countryCode,
+          number: c.number,
+          type: c.type
+        })));
       }
+
+      // Reload one more time to show the contacts
       await loadAirlines();
       setIsModalOpen(false);
       setEditingAirline(null);
@@ -214,7 +262,7 @@ export function AirlineManagement() {
     );
   };
 
-  const availableCities = formData.originCountry ? locationData[formData.originCountry] || [] : [];
+
 
   return (
     <div>
@@ -277,7 +325,9 @@ export function AirlineManagement() {
               <tr>
                 <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">ID</th>
                 <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Name</th>
+                <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Origin Type</th>
                 <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Origin Location</th>
+                <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Phone Numbers</th>
                 <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Status</th>
                 <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Actions</th>
               </tr>
@@ -288,16 +338,31 @@ export function AirlineManagement() {
                   <tr key={airline.id} className="hover:bg-[var(--color-background)] transition-colors">
                     <td className="px-6 py-4 text-[var(--color-text-primary)]">{airline.id}</td>
                     <td className="px-6 py-4 text-[var(--color-text-primary)]">{airline.name}</td>
+                    <td className="px-6 py-4 text-[var(--color-text-primary)]">{airline.originType}</td>
                     <td className="px-6 py-4 text-[var(--color-text-secondary)]">
-                      {airline.originCity}, {airline.originCountry}
+                      {airline.originLocationName || '-'}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="max-h-20 overflow-y-auto">
+                        {airline.contactNumbers && airline.contactNumbers.length > 0 ? (
+                          <div className="space-y-1">
+                            {airline.contactNumbers.map((contact: ContactNumber, idx: number) => (
+                              <div key={idx} className="text-xs text-[var(--color-text-secondary)]">
+                                {contact.countryCode} {contact.number} ({contact.type})
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-[var(--color-text-secondary)]">—</span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-6 py-4">
                       <span
-                        className={`inline-flex items-center px-3 py-1 rounded-full text-xs ${
-                          airline.status === 'Active'
-                            ? 'bg-green-100 text-green-700'
-                            : 'bg-gray-100 text-gray-700'
-                        }`}
+                        className={`inline - flex items - center px - 3 py - 1 rounded - full text - xs ${airline.status === 'Active'
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-gray-100 text-gray-700'
+                          } `}
                       >
                         {airline.status}
                       </span>
@@ -347,16 +412,15 @@ export function AirlineManagement() {
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
-              
+
               {[...Array(totalPages)].map((_, index) => (
                 <button
                   key={index + 1}
                   onClick={() => setCurrentPage(index + 1)}
-                  className={`px-4 py-2 rounded-md transition-colors ${
-                    currentPage === index + 1
-                      ? 'bg-[var(--color-primary-blue)] text-white'
-                      : 'border border-[var(--color-border)] hover:bg-[var(--color-background)] text-[var(--color-text-primary)]'
-                  }`}
+                  className={`px - 4 py - 2 rounded - md transition - colors ${currentPage === index + 1
+                    ? 'bg-[var(--color-primary-blue)] text-white'
+                    : 'border border-[var(--color-border)] hover:bg-[var(--color-background)] text-[var(--color-text-primary)]'
+                    } `}
                 >
                   {index + 1}
                 </button>
@@ -392,7 +456,7 @@ export function AirlineManagement() {
                 <h3 className="text-[var(--color-text-primary)] mb-4 pb-2 border-b border-[var(--color-border)]">
                   Airline Details
                 </h3>
-                
+
                 <div className="space-y-4">
                   {/* Name */}
                   <div>
@@ -408,48 +472,66 @@ export function AirlineManagement() {
                     />
                   </div>
 
-                  {/* Cascading Location Dropdowns */}
+                  {/* Origin Details */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Country Dropdown */}
+                    {/* Origin Type */}
                     <div>
                       <label className="block text-[var(--color-text-primary)] mb-2">
-                        Select Country <span className="text-red-500">*</span>
+                        Origin Type <span className="text-red-500">*</span>
                       </label>
                       <select
-                        value={formData.originCountry}
-                        onChange={(e) => handleCountryChange(e.target.value)}
+                        value={formData.originType}
+                        onChange={(e) => setFormData({ ...formData, originType: e.target.value as 'Nacional' | 'Internacional' })}
+                        className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
+                      >
+                        <option value="Internacional">Internacional</option>
+                        <option value="Nacional">Nacional</option>
+                      </select>
+                    </div>
+
+                    {/* Origin Country */}
+                    <div>
+                      <label className="block text-[var(--color-text-primary)] mb-2">
+                        Origin Country <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={selectedOriginCountry || ''}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setSelectedOriginCountry(val);
+                          setFormData(prev => ({ ...prev, fkLug: val }));
+                        }}
                         className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
                       >
                         <option value="">Select a country</option>
-                        {Object.keys(locationData).sort().map(country => (
-                          <option key={country} value={country}>
-                            {country}
+                        {countries.map(country => (
+                          <option key={country.cod_lug} value={country.cod_lug}>
+                            {country.nombre_lug}
                           </option>
                         ))}
                       </select>
                     </div>
 
-                    {/* City Dropdown */}
-                    <div>
-                      <label className="block text-[var(--color-text-primary)] mb-2">
-                        Select City <span className="text-red-500">*</span>
-                      </label>
-                      <select
-                        value={formData.originCity}
-                        onChange={(e) => setFormData({ ...formData, originCity: e.target.value })}
-                        disabled={!formData.originCountry}
-                        className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <option value="">
-                          {formData.originCountry ? 'Select a city' : 'Select country first'}
-                        </option>
-                        {availableCities.map(city => (
-                          <option key={city} value={city}>
-                            {city}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    {/* Origin City (Dependent) */}
+                    {cities.length > 0 && (
+                      <div className="md:col-span-2">
+                        <label className="block text-[var(--color-text-primary)] mb-2">
+                          Origin City <span className="text-red-500">*</span>
+                        </label>
+                        <select
+                          value={formData.fkLug || ''}
+                          onChange={(e) => setFormData({ ...formData, fkLug: Number(e.target.value) })}
+                          className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
+                        >
+                          <option value={selectedOriginCountry}>-- Select City --</option>
+                          {cities.map(city => (
+                            <option key={city.cod_lug} value={city.cod_lug}>
+                              {city.nombre_lug}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                   </div>
 
                   {/* Status */}
@@ -536,8 +618,8 @@ export function AirlineManagement() {
                               }
                               className="w-full px-3 py-2 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all text-sm"
                             >
-                              <option value="Office">Office</option>
-                              <option value="Fax">Fax</option>
+                              <option value="Oficina">Oficina</option>
+                              <option value="Movil">Móvil</option>
                             </select>
                           </td>
                           <td className="px-4 py-3">

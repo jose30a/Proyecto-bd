@@ -259,6 +259,11 @@ export interface Airline {
   origin_country: string;
   origin_city: string;
   status: 'Active' | 'Inactive';
+  // New fields for frontend
+  originType?: 'Nacional' | 'Internacional';
+  originLocationName?: string;
+  fkLug?: number;
+  fkLugPadre?: number;
 }
 
 export interface ContactNumber {
@@ -281,6 +286,11 @@ export async function getAllAirlines(): Promise<Airline[]> {
     origin_country: r.p_origen_aer || '',
     origin_city: r.p_lugar_nombre || r.p_origen_aer || '',
     status: 'Active',
+    // Map new fields correctly
+    originType: r.p_origen_aer,
+    originLocationName: r.p_lugar_nombre,
+    fkLug: r.p_fk_cod_lug,
+    fkLugPadre: r.p_fk_lug_padre
   }));
 }
 
@@ -296,7 +306,7 @@ export async function getAirlineById(airlineId: string): Promise<Airline> {
  * Get contact numbers for an airline
  * Calls stored procedure: get_airline_contacts(airline_id)
  */
-export async function getAirlineContacts(airlineId: string): Promise<ContactNumber[]> {
+export async function getAirlineContacts(airlineId: number): Promise<ContactNumber[]> {
   return callFunction<ContactNumber>('get_airline_contacts', [airlineId]);
 }
 
@@ -304,14 +314,23 @@ export async function getAirlineContacts(airlineId: string): Promise<ContactNumb
  * Create or update airline
  * Calls stored procedure: upsert_airline(airline_id, name, origin_country, origin_city, status)
  */
-export async function upsertAirline(airline: Partial<Airline> & { name: string }): Promise<void> {
+export async function getCountries(): Promise<{ cod_lug: number; nombre_lug: string }[]> {
+  // Use generic API handler for function calls
+  return callFunction<{ cod_lug: number; nombre_lug: string }[]>('get_countries', []);
+}
+
+export async function getCities(countryId: number): Promise<{ cod_lug: number; nombre_lug: string }[]> {
+  return callFunction<{ cod_lug: number; nombre_lug: string }[]>('get_cities', [countryId]);
+}
+
+export async function upsertAirline(airline: Partial<Airline> & { name: string; origin_type?: string; fk_lug?: number }): Promise<void> {
   return callProcedure(
     'upsert_airline',
     [
-      airline.id || null,
+      airline.id ? parseInt(airline.id) : null,
       airline.name,
-      airline.origin_country || '',
-      airline.origin_city || '',
+      airline.origin_type || 'Internacional',
+      airline.fk_lug || null,
       airline.status || 'Active',
     ]
   );
@@ -335,8 +354,8 @@ export async function upsertContactNumber(
   return callProcedure(
     'upsert_contact_number',
     [
-      contact.id || null,
-      contact.airline_id,
+      { value: contact.id || null, type: 'INTEGER' },
+      { value: parseInt(contact.airline_id) || null, type: 'INTEGER' },
       contact.country_code,
       contact.number,
       contact.type || 'Office',
