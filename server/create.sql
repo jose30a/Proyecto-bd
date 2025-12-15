@@ -25,6 +25,7 @@ CREATE TABLE usuario (
     n_pasaporte_usu VARCHAR(20) NOT NULL UNIQUE,
     visa_usu BOOLEAN,
     millas_acum_usu INTEGER DEFAULT 0,
+    fecha_nacimiento DATE,
     fk_cod_rol INTEGER REFERENCES rol(cod) -- Relación Usuario -> Rol
 );
 
@@ -41,7 +42,8 @@ CREATE TABLE auditoria (
 );
 
 CREATE TABLE aud_usu (
-    fecha_hora TIMESTAMP PRIMARY KEY,
+    cod SERIAL PRIMARY KEY,
+    fecha_hora TIMESTAMP NOT NULL DEFAULT now(),
     fk_usuario INTEGER REFERENCES usuario(cod),
     fk_auditoria INTEGER REFERENCES auditoria(cod)
 );
@@ -177,7 +179,8 @@ CREATE TABLE paquete_turistico (
     estado_paq VARCHAR(20) NOT NULL,
     costo_millas_paq INTEGER,
     millaje_paq INTEGER NOT NULL,
-    huella_de_carbono_paq DECIMAL(10,2) NOT NULL,   
+    huella_de_carbono_paq DECIMAL(10,2) NOT NULL,
+    fecha_cancelacion DATE,
     fk_cod_tasa_cambio INTEGER REFERENCES tasa_cambio(cod),
     fk_cod_usuario INTEGER REFERENCES usuario(cod),
     fk_cod_plan_pago INTEGER REFERENCES plan_pago(cod)
@@ -624,6 +627,65 @@ BEGIN
     END IF;
 END;
 $$ LANGUAGE plpgsql;
+
+-- Procedure to update basic user details: email and names
+DROP PROCEDURE IF EXISTS update_user_details(INTEGER, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR) CASCADE;
+CREATE OR REPLACE PROCEDURE update_user_details(
+    p_user_id INTEGER,
+    p_email VARCHAR,
+    p_primer_nombre VARCHAR,
+    p_segundo_nombre VARCHAR,
+    p_primer_apellido VARCHAR,
+    p_segundo_apellido VARCHAR
+) AS $$
+DECLARE
+    v_updated INTEGER;
+BEGIN
+    UPDATE usuario
+    SET
+        email_usu = COALESCE(NULLIF(p_email,''), email_usu),
+        primer_nombre_usu = COALESCE(NULLIF(p_primer_nombre,''), primer_nombre_usu),
+        segundo_nombre_usu = COALESCE(p_segundo_nombre, segundo_nombre_usu),
+        primer_apellido_usu = COALESCE(NULLIF(p_primer_apellido,''), primer_apellido_usu),
+        segundo_apellido_usu = COALESCE(p_segundo_apellido, segundo_apellido_usu)
+    WHERE cod = p_user_id;
+
+    GET DIAGNOSTICS v_updated = ROW_COUNT;
+
+    IF v_updated = 0 THEN
+        RAISE EXCEPTION 'User with id % not found', p_user_id;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Function: list all roles (for frontend consumption)
+DROP FUNCTION IF EXISTS get_all_roles() CASCADE;
+CREATE OR REPLACE FUNCTION get_all_roles()
+RETURNS TABLE(p_cod INTEGER, p_nombre_rol VARCHAR) AS $$
+BEGIN
+    RETURN QUERY SELECT cod, nombre_rol FROM rol ORDER BY cod;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Audit: record role changes on usuario
+DROP FUNCTION IF EXISTS audit_fn_usuario_update_role() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_usuario_update_role() RETURNS trigger AS $$
+BEGIN
+    -- Only record when role actually changed
+    IF (OLD.fk_cod_rol IS DISTINCT FROM NEW.fk_cod_rol) THEN
+        PERFORM record_audit('Cambio de rol de usuario');
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_usuario_update_role ON usuario;
+CREATE TRIGGER trg_usuario_update_role
+AFTER UPDATE ON usuario
+FOR EACH ROW
+WHEN (OLD.fk_cod_rol IS DISTINCT FROM NEW.fk_cod_rol)
+EXECUTE FUNCTION audit_fn_usuario_update_role();
+
 
 -- =============================================
 -- Packages (paquete_turistico)
@@ -1101,5 +1163,619 @@ BEGIN
     ELSE
         RAISE EXCEPTION 'Invalid item type: %', p_type;
     END IF;
+END;
+$$ LANGUAGE plpgsql;
+-- Auditing helper + table triggers
+-- =============================================
+
+-- Helper: record an audit event; uses session setting 'app.current_user' when available
+DROP FUNCTION IF EXISTS record_audit(TEXT) CASCADE;
+CREATE OR REPLACE FUNCTION record_audit(p_desc TEXT) RETURNS VOID AS $$
+DECLARE
+    v_user_text TEXT;
+    v_user INTEGER;
+    v_aud INTEGER;
+BEGIN
+    -- read current user id from session setting (set by application)
+    v_user_text := current_setting('app.current_user', true);
+    IF v_user_text IS NOT NULL AND trim(v_user_text) <> '' THEN
+        BEGIN
+            v_user := v_user_text::INTEGER;
+        EXCEPTION WHEN others THEN
+            v_user := NULL;
+        END;
+    ELSE
+        v_user := NULL;
+    END IF;
+
+    SELECT cod INTO v_aud FROM auditoria WHERE descripcion = p_desc LIMIT 1;
+    IF v_aud IS NULL THEN
+        INSERT INTO auditoria (descripcion) VALUES (p_desc) RETURNING cod INTO v_aud;
+    END IF;
+
+    INSERT INTO aud_usu (fk_usuario, fk_auditoria) VALUES (v_user, v_aud);
+END;
+$$ LANGUAGE plpgsql;
+
+-- Triggers for key tables
+-- Aerolinea
+-- Wrapper functions for audit triggers
+DROP FUNCTION IF EXISTS audit_fn_aerolinea_insert() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_aerolinea_insert() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Creación de aerolínea');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS audit_fn_aerolinea_update() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_aerolinea_update() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Actualización de aerolínea');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS audit_fn_aerolinea_delete() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_aerolinea_delete() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Eliminación de aerolínea');
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_aerolinea_insert ON aerolinea;
+CREATE TRIGGER trg_aerolinea_insert AFTER INSERT ON aerolinea
+FOR EACH ROW EXECUTE FUNCTION audit_fn_aerolinea_insert();
+DROP TRIGGER IF EXISTS trg_aerolinea_update ON aerolinea;
+CREATE TRIGGER trg_aerolinea_update AFTER UPDATE ON aerolinea
+FOR EACH ROW EXECUTE FUNCTION audit_fn_aerolinea_update();
+DROP TRIGGER IF EXISTS trg_aerolinea_delete ON aerolinea;
+CREATE TRIGGER trg_aerolinea_delete AFTER DELETE ON aerolinea
+FOR EACH ROW EXECUTE FUNCTION audit_fn_aerolinea_delete();
+
+-- Paquete turistico
+DROP FUNCTION IF EXISTS audit_fn_paquete_insert() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_paquete_insert() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Creación de paquete turístico');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS audit_fn_paquete_update() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_paquete_update() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Actualización de paquete turístico');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS audit_fn_paquete_delete() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_paquete_delete() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Eliminación de paquete turístico');
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_paquete_insert ON paquete_turistico;
+CREATE TRIGGER trg_paquete_insert AFTER INSERT ON paquete_turistico
+FOR EACH ROW EXECUTE FUNCTION audit_fn_paquete_insert();
+DROP TRIGGER IF EXISTS trg_paquete_update ON paquete_turistico;
+CREATE TRIGGER trg_paquete_update AFTER UPDATE ON paquete_turistico
+FOR EACH ROW EXECUTE FUNCTION audit_fn_paquete_update();
+DROP TRIGGER IF EXISTS trg_paquete_delete ON paquete_turistico;
+CREATE TRIGGER trg_paquete_delete AFTER DELETE ON paquete_turistico
+FOR EACH ROW EXECUTE FUNCTION audit_fn_paquete_delete();
+
+-- Promocion
+DROP FUNCTION IF EXISTS audit_fn_promocion_insert() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_promocion_insert() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Creación de promoción');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS audit_fn_promocion_update() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_promocion_update() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Actualización de promoción');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS audit_fn_promocion_delete() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_promocion_delete() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Eliminación de promoción');
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_promocion_insert ON promocion;
+CREATE TRIGGER trg_promocion_insert AFTER INSERT ON promocion
+FOR EACH ROW EXECUTE FUNCTION audit_fn_promocion_insert();
+DROP TRIGGER IF EXISTS trg_promocion_update ON promocion;
+CREATE TRIGGER trg_promocion_update AFTER UPDATE ON promocion
+FOR EACH ROW EXECUTE FUNCTION audit_fn_promocion_update();
+DROP TRIGGER IF EXISTS trg_promocion_delete ON promocion;
+CREATE TRIGGER trg_promocion_delete AFTER DELETE ON promocion
+FOR EACH ROW EXECUTE FUNCTION audit_fn_promocion_delete();
+
+-- Servicio
+DROP FUNCTION IF EXISTS audit_fn_servicio_insert() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_servicio_insert() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Creación de servicio');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS audit_fn_servicio_update() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_servicio_update() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Actualización de servicio');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS audit_fn_servicio_delete() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_servicio_delete() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Eliminación de servicio');
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_servicio_insert ON servicio;
+CREATE TRIGGER trg_servicio_insert AFTER INSERT ON servicio
+FOR EACH ROW EXECUTE FUNCTION audit_fn_servicio_insert();
+DROP TRIGGER IF EXISTS trg_servicio_update ON servicio;
+CREATE TRIGGER trg_servicio_update AFTER UPDATE ON servicio
+FOR EACH ROW EXECUTE FUNCTION audit_fn_servicio_update();
+DROP TRIGGER IF EXISTS trg_servicio_delete ON servicio;
+CREATE TRIGGER trg_servicio_delete AFTER DELETE ON servicio
+FOR EACH ROW EXECUTE FUNCTION audit_fn_servicio_delete();
+
+-- Hotel
+DROP FUNCTION IF EXISTS audit_fn_hotel_insert() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_hotel_insert() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Creación de hotel');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS audit_fn_hotel_update() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_hotel_update() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Actualización de hotel');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS audit_fn_hotel_delete() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_hotel_delete() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Eliminación de hotel');
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_hotel_insert ON hotel;
+CREATE TRIGGER trg_hotel_insert AFTER INSERT ON hotel
+FOR EACH ROW EXECUTE FUNCTION audit_fn_hotel_insert();
+DROP TRIGGER IF EXISTS trg_hotel_update ON hotel;
+CREATE TRIGGER trg_hotel_update AFTER UPDATE ON hotel
+FOR EACH ROW EXECUTE FUNCTION audit_fn_hotel_update();
+DROP TRIGGER IF EXISTS trg_hotel_delete ON hotel;
+CREATE TRIGGER trg_hotel_delete AFTER DELETE ON hotel
+FOR EACH ROW EXECUTE FUNCTION audit_fn_hotel_delete();
+
+-- Restaurant
+DROP FUNCTION IF EXISTS audit_fn_restaurant_insert() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_restaurant_insert() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Creación de restaurante');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS audit_fn_restaurant_update() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_restaurant_update() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Actualización de restaurante');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS audit_fn_restaurant_delete() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_restaurant_delete() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Eliminación de restaurante');
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_restaurant_insert ON restaurant;
+CREATE TRIGGER trg_restaurant_insert AFTER INSERT ON restaurant
+FOR EACH ROW EXECUTE FUNCTION audit_fn_restaurant_insert();
+DROP TRIGGER IF EXISTS trg_restaurant_update ON restaurant;
+CREATE TRIGGER trg_restaurant_update AFTER UPDATE ON restaurant
+FOR EACH ROW EXECUTE FUNCTION audit_fn_restaurant_update();
+DROP TRIGGER IF EXISTS trg_restaurant_delete ON restaurant;
+CREATE TRIGGER trg_restaurant_delete AFTER DELETE ON restaurant
+FOR EACH ROW EXECUTE FUNCTION audit_fn_restaurant_delete();
+
+-- Pago
+DROP FUNCTION IF EXISTS audit_fn_pago_insert() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_pago_insert() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Creación de pago');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS audit_fn_pago_update() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_pago_update() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Actualización de pago');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS audit_fn_pago_delete() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_pago_delete() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Eliminación de pago');
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_pago_insert ON pago;
+CREATE TRIGGER trg_pago_insert AFTER INSERT ON pago
+FOR EACH ROW EXECUTE FUNCTION audit_fn_pago_insert();
+DROP TRIGGER IF EXISTS trg_pago_update ON pago;
+CREATE TRIGGER trg_pago_update AFTER UPDATE ON pago
+FOR EACH ROW EXECUTE FUNCTION audit_fn_pago_update();
+DROP TRIGGER IF EXISTS trg_pago_delete ON pago;
+CREATE TRIGGER trg_pago_delete AFTER DELETE ON pago
+FOR EACH ROW EXECUTE FUNCTION audit_fn_pago_delete();
+
+-- MetodoDePago
+DROP FUNCTION IF EXISTS audit_fn_metodopago_insert() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_metodopago_insert() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Creación de método de pago');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS audit_fn_metodopago_update() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_metodopago_update() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Actualización de método de pago');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS audit_fn_metodopago_delete() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_metodopago_delete() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Eliminación de método de pago');
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_metodopago_insert ON metodoDePago;
+CREATE TRIGGER trg_metodopago_insert AFTER INSERT ON metodoDePago
+FOR EACH ROW EXECUTE FUNCTION audit_fn_metodopago_insert();
+DROP TRIGGER IF EXISTS trg_metodopago_update ON metodoDePago;
+CREATE TRIGGER trg_metodopago_update AFTER UPDATE ON metodoDePago
+FOR EACH ROW EXECUTE FUNCTION audit_fn_metodopago_update();
+DROP TRIGGER IF EXISTS trg_metodopago_delete ON metodoDePago;
+CREATE TRIGGER trg_metodopago_delete AFTER DELETE ON metodoDePago
+FOR EACH ROW EXECUTE FUNCTION audit_fn_metodopago_delete();
+
+-- Telefono (contact)
+DROP FUNCTION IF EXISTS audit_fn_telefono_insert() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_telefono_insert() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Creación de contacto');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS audit_fn_telefono_update() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_telefono_update() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Actualización de contacto');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS audit_fn_telefono_delete() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_telefono_delete() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Eliminación de contacto');
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_telefono_insert ON telefono;
+CREATE TRIGGER trg_telefono_insert AFTER INSERT ON telefono
+FOR EACH ROW EXECUTE FUNCTION audit_fn_telefono_insert();
+DROP TRIGGER IF EXISTS trg_telefono_update ON telefono;
+CREATE TRIGGER trg_telefono_update AFTER UPDATE ON telefono
+FOR EACH ROW EXECUTE FUNCTION audit_fn_telefono_update();
+DROP TRIGGER IF EXISTS trg_telefono_delete ON telefono;
+CREATE TRIGGER trg_telefono_delete AFTER DELETE ON telefono
+FOR EACH ROW EXECUTE FUNCTION audit_fn_telefono_delete();
+
+-- Reclamo
+DROP FUNCTION IF EXISTS audit_fn_reclamo_insert() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_reclamo_insert() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Creación de reclamo');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS audit_fn_reclamo_update() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_reclamo_update() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Actualización de reclamo');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS audit_fn_reclamo_resolve() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_reclamo_resolve() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Resolución de reclamo');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_reclamo_insert ON reclamo;
+CREATE TRIGGER trg_reclamo_insert AFTER INSERT ON reclamo
+FOR EACH ROW EXECUTE FUNCTION audit_fn_reclamo_insert();
+DROP TRIGGER IF EXISTS trg_reclamo_update ON reclamo;
+CREATE TRIGGER trg_reclamo_update AFTER UPDATE ON reclamo
+FOR EACH ROW EXECUTE FUNCTION audit_fn_reclamo_update();
+DROP TRIGGER IF EXISTS trg_reclamo_resolve ON reclamo;
+CREATE TRIGGER trg_reclamo_resolve AFTER UPDATE ON reclamo
+FOR EACH ROW WHEN (NEW.estado_rec = 'Cerrado') EXECUTE FUNCTION audit_fn_reclamo_resolve();
+
+-- Reseña
+DROP FUNCTION IF EXISTS audit_fn_resena_insert() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_resena_insert() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Creación de reseña');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS audit_fn_resena_update() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_resena_update() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Actualización de reseña');
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP FUNCTION IF EXISTS audit_fn_resena_delete() CASCADE;
+CREATE OR REPLACE FUNCTION audit_fn_resena_delete() RETURNS trigger AS $$
+BEGIN
+    PERFORM record_audit('Eliminación de reseña');
+    RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_resena_insert ON reseña;
+CREATE TRIGGER trg_resena_insert AFTER INSERT ON reseña
+FOR EACH ROW EXECUTE FUNCTION audit_fn_resena_insert();
+DROP TRIGGER IF EXISTS trg_resena_update ON reseña;
+CREATE TRIGGER trg_resena_update AFTER UPDATE ON reseña
+FOR EACH ROW EXECUTE FUNCTION audit_fn_resena_update();
+DROP TRIGGER IF EXISTS trg_resena_delete ON reseña;
+CREATE TRIGGER trg_resena_delete AFTER DELETE ON reseña
+FOR EACH ROW EXECUTE FUNCTION audit_fn_resena_delete();
+
+-- =============================================
+-- 10. DASHBOARD & REPORTING FUNCTIONS
+-- =============================================
+
+-- Dashboard Stats
+DROP FUNCTION IF EXISTS get_dashboard_stats();
+CREATE OR REPLACE FUNCTION get_dashboard_stats()
+RETURNS TABLE (
+    total_sales DECIMAL,
+    active_users BIGINT,
+    total_packages BIGINT,
+    monthly_revenue DECIMAL
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        COALESCE((SELECT SUM(monto_pago) FROM pago), 0)::DECIMAL as total_sales,
+        (SELECT COUNT(*) FROM usuario)::BIGINT as active_users,
+        (SELECT COUNT(*) FROM paquete_turistico)::BIGINT as total_packages,
+        COALESCE((
+            SELECT SUM(monto_pago) 
+            FROM pago 
+            WHERE EXTRACT(MONTH FROM fecha_pago) = EXTRACT(MONTH FROM CURRENT_DATE)
+              AND EXTRACT(YEAR FROM fecha_pago) = EXTRACT(YEAR FROM CURRENT_DATE)
+        ), 0)::DECIMAL as monthly_revenue;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Report 1: Negative Reviews (<= 2 stars) for Hotels
+DROP FUNCTION IF EXISTS get_negative_reviews(DATE, DATE);
+CREATE OR REPLACE FUNCTION get_negative_reviews(p_start DATE DEFAULT NULL, p_end DATE DEFAULT NULL)
+RETURNS TABLE (
+    id INTEGER,
+    "hotelName" VARCHAR,
+    "date" TEXT,
+    "comment" TEXT,
+    rating INTEGER
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT DISTINCT ON (r.cod)
+        r.cod::INTEGER,
+        h.nombre_hot::VARCHAR,
+        COALESCE(TO_CHAR(hp.inicio_estadia_hot, 'YYYY-MM-DD'), '')::TEXT,
+        r.descripcion_res::TEXT,
+        r.rating_res::INTEGER
+    FROM reseña r
+    JOIN hotel h ON r.fk_cod_hotel = h.cod
+    LEFT JOIN hot_paq hp ON r.fk_cod_hotel = hp.fk_hotel
+    WHERE r.rating_res <= 2
+      AND (p_start IS NULL OR hp.inicio_estadia_hot >= p_start)
+      AND (p_end IS NULL OR hp.inicio_estadia_hot <= p_end)
+    ORDER BY r.cod, hp.inicio_estadia_hot DESC
+    LIMIT 100;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Report 2: Historical Exchange Rates
+DROP FUNCTION IF EXISTS get_exchange_rates_history(DATE, DATE);
+CREATE OR REPLACE FUNCTION get_exchange_rates_history(p_start DATE DEFAULT NULL, p_end DATE DEFAULT NULL)
+RETURNS TABLE (
+    p_fecha TIMESTAMP,
+    p_moneda VARCHAR,
+    p_tasa_bs DECIMAL
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT fecha_hora_tas, moneda, tasa_bs
+    FROM tasa_cambio
+    WHERE (p_start IS NULL OR fecha_hora_tas >= p_start)
+      AND (p_end IS NULL OR fecha_hora_tas <= p_end)
+    ORDER BY fecha_hora_tas ASC;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Report 3: Operator Performance (Tours = Turistico, Car Rental = Vehiculo/Terrestre)
+DROP FUNCTION IF EXISTS get_operator_performance(DATE, DATE);
+CREATE OR REPLACE FUNCTION get_operator_performance(p_start DATE DEFAULT NULL, p_end DATE DEFAULT NULL)
+RETURNS TABLE (
+    "rank" BIGINT,
+    "operator" VARCHAR,
+    revenue DECIMAL,
+    "serviceCost" DECIMAL,
+    duration VARCHAR
+) AS $$
+BEGIN
+    RETURN QUERY
+    WITH operator_revenue AS (
+        -- Tours
+        SELECT 
+            t.nombre AS op_name,
+            COALESCE(SUM(ts.costo_ser),0) AS total_rev,
+            COALESCE(SUM(ts.costo_ser * 0.7),0) AS cost_est, -- Mock cost calculation
+            'Tour' AS type
+        FROM turistico t
+        JOIN tur_ser tus ON t.cod = tus.fk_turistico
+        JOIN ser_paq ts ON tus.fk_servicio = ts.fk_servicio
+        WHERE (p_start IS NULL OR ts.inicio_ser >= p_start)
+          AND (p_end IS NULL OR ts.inicio_ser <= p_end)
+        GROUP BY t.nombre
+        
+        UNION ALL
+        
+        -- Car Rentals (Vehiculo -> Terrestre)
+        SELECT 
+            te.nombre AS op_name,
+            COALESCE(SUM(vs.costo_ser),0) AS total_rev,
+            COALESCE(SUM(vs.costo_ser * 0.6),0) AS cost_est,
+            'Rental' AS type
+        FROM terrestre te
+        JOIN vehiculo v ON te.cod = v.fk_cod_terrestre
+        JOIN ser_veh sv ON v.cod = sv.fk_vehiculo
+        JOIN ser_paq vs ON sv.fk_servicio = vs.fk_servicio
+        WHERE (p_start IS NULL OR vs.inicio_ser >= p_start)
+          AND (p_end IS NULL OR vs.inicio_ser <= p_end)
+        GROUP BY te.nombre
+    )
+    SELECT 
+        RANK() OVER (ORDER BY total_rev DESC)::BIGINT,
+        op_name::VARCHAR,
+        total_rev::DECIMAL,
+        cost_est::DECIMAL,
+        'N/A'::VARCHAR -- Duration placeholder
+    FROM operator_revenue
+    ORDER BY total_rev DESC;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Report 4: Refunds Audit
+DROP FUNCTION IF EXISTS get_refunds_audit(DATE, DATE);
+CREATE OR REPLACE FUNCTION get_refunds_audit(p_start DATE DEFAULT NULL, p_end DATE DEFAULT NULL)
+RETURNS TABLE (
+    "reservationId" INTEGER,
+    "totalAmount" DECIMAL,
+    penalty DECIMAL,
+    "refundAmount" DECIMAL,
+    "processDate" TEXT
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        pt.cod,
+        -- Calculate total amount from payments (if any) or assume base cost
+        COALESCE((SELECT SUM(monto_pago) FROM pago WHERE fk_cod_paquete = pt.cod), 0)::DECIMAL as total,
+        (COALESCE((SELECT SUM(monto_pago) FROM pago WHERE fk_cod_paquete = pt.cod), 0) * 0.10)::DECIMAL as pen,
+        (COALESCE((SELECT SUM(monto_pago) FROM pago WHERE fk_cod_paquete = pt.cod), 0) * 0.90)::DECIMAL as ref,
+        TO_CHAR(pt.fecha_cancelacion, 'YYYY-MM-DD')
+    FROM paquete_turistico pt
+    WHERE pt.estado_paq = 'Cancelled'
+      AND pt.fecha_cancelacion IS NOT NULL
+      AND (p_start IS NULL OR pt.fecha_cancelacion >= p_start)
+      AND (p_end IS NULL OR pt.fecha_cancelacion <= p_end);
+END;
+$$ LANGUAGE plpgsql;
+
+-- Report 5.1: Age Distribution
+DROP FUNCTION IF EXISTS get_customer_age_distribution(DATE, DATE);
+CREATE OR REPLACE FUNCTION get_customer_age_distribution(p_start DATE DEFAULT NULL, p_end DATE DEFAULT NULL)
+RETURNS TABLE (
+    "range" VARCHAR,
+    "count" BIGINT
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        CASE 
+            WHEN AGE(fecha_nacimiento) < INTERVAL '25 years' THEN '18-24'
+            WHEN AGE(fecha_nacimiento) < INTERVAL '35 years' THEN '25-34'
+            WHEN AGE(fecha_nacimiento) < INTERVAL '45 years' THEN '35-44'
+            WHEN AGE(fecha_nacimiento) < INTERVAL '55 years' THEN '45-54'
+            ELSE '55+'
+        END::VARCHAR as age_range,
+        COUNT(*)::BIGINT
+    FROM usuario
+    WHERE fecha_nacimiento IS NOT NULL
+    -- Note: Time period for "customers booking trips". joining to packages would be better.
+    -- For now, simple user stats. logic can be refined to join table package_turistico
+    GROUP BY age_range
+    ORDER BY age_range;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Report 5.2: Average Age
+DROP FUNCTION IF EXISTS get_customer_average_age(DATE, DATE);
+CREATE OR REPLACE FUNCTION get_customer_average_age(p_start DATE DEFAULT NULL, p_end DATE DEFAULT NULL)
+RETURNS TABLE (
+    p_avg DECIMAL
+) AS $$
+BEGIN
+    RETURN QUERY
+    SELECT AVG(EXTRACT(YEAR FROM AGE(fecha_nacimiento)))::DECIMAL
+    FROM usuario
+    WHERE fecha_nacimiento IS NOT NULL;
 END;
 $$ LANGUAGE plpgsql;

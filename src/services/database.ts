@@ -98,6 +98,31 @@ export async function getUserById(userId: number): Promise<User> {
 }
 
 /**
+ * Get current authenticated user (based on cookie set by server)
+ */
+export async function getCurrentUser(): Promise<User | null> {
+  // call API helper directly
+  // Importing from api.ts here would cause circular if not careful; use dynamic import to avoid issues
+  const api = await import('./api');
+  const row: any = await api.getCurrentUser();
+  if (!row) return null;
+
+  const user = row as any;
+  user.fullName = [user.p_primer_nombre_usu, user.p_segundo_nombre_usu, user.p_primer_apellido_usu, user.p_segundo_apellido_usu].filter(Boolean).join(' ');
+  user.role = user.p_nombre_rol;
+  user.cod = user.p_cod;
+  user.email_usu = user.p_email_usu;
+  user.primer_nombre_usu = user.p_primer_nombre_usu;
+  user.segundo_nombre_usu = user.p_segundo_nombre_usu;
+  user.primer_apellido_usu = user.p_primer_apellido_usu;
+  user.segundo_apellido_usu = user.p_segundo_apellido_usu;
+  user.nombre_rol = user.p_nombre_rol;
+  user.fk_cod_rol = user.p_fk_cod_rol;
+
+  return user as User;
+}
+
+/**
  * Register a new user
  * Calls stored procedure: register_user(...)
  */
@@ -195,11 +220,34 @@ export async function getAllUsers(): Promise<ManagementUser[]> {
 }
 
 /**
+ * Fetch available roles from DB
+ * Calls function: get_all_roles()
+ */
+export async function getAllRoles(): Promise<string[]> {
+  const rows = await callFunction<any>('get_all_roles', []);
+  return rows.map((r: any) => r.p_nombre_rol);
+}
+
+/**
  * Update a user's role
  * Calls procedure: update_user_role(user_id, role_name)
  */
 export async function updateUserRole(userId: number, roleName: string): Promise<void> {
   await callProcedure('update_user_role', [userId, roleName]);
+}
+
+/**
+ * Update user's basic details (email and names)
+ */
+export async function updateUserDetails(userId: number, data: { email?: string; primerNombre?: string; segundoNombre?: string; primerApellido?: string; segundoApellido?: string }): Promise<void> {
+  await callProcedure('update_user_details', [
+    userId,
+    data.email || null,
+    data.primerNombre || null,
+    data.segundoNombre || null,
+    data.primerApellido || null,
+    data.segundoApellido || null,
+  ]);
 }
 
 // ==================== Airlines ====================
@@ -396,32 +444,50 @@ export async function deletePromotion(id: number): Promise<void> {
 // ==================== Reports ====================
 
 export async function getNegativeReviews(start?: string, end?: string) {
-  const rows = await callFunction<any>('get_negative_reviews', [start || null, end || null]);
+  const rows = await callFunction<any>('get_negative_reviews', [
+    start ? { value: start, type: 'DATE' } : null,
+    end ? { value: end, type: 'DATE' } : null
+  ]);
   return rows;
 }
 
 export async function getExchangeRatesHistory(start?: string, end?: string) {
-  const rows = await callFunction<any>('get_exchange_rates_history', [start || null, end || null]);
+  const rows = await callFunction<any>('get_exchange_rates_history', [
+    start ? { value: start, type: 'DATE' } : null,
+    end ? { value: end, type: 'DATE' } : null
+  ]);
   return rows;
 }
 
 export async function getOperatorPerformance(start?: string, end?: string) {
-  const rows = await callFunction<any>('get_operator_performance', [start || null, end || null]);
+  const rows = await callFunction<any>('get_operator_performance', [
+    start ? { value: start, type: 'DATE' } : null,
+    end ? { value: end, type: 'DATE' } : null
+  ]);
   return rows;
 }
 
 export async function getRefundsAudit(start?: string, end?: string) {
-  const rows = await callFunction<any>('get_refunds_audit', [start || null, end || null]);
+  const rows = await callFunction<any>('get_refunds_audit', [
+    start ? { value: start, type: 'DATE' } : null,
+    end ? { value: end, type: 'DATE' } : null
+  ]);
   return rows;
 }
 
 export async function getCustomerAgeDistribution(start?: string, end?: string) {
-  const rows = await callFunction<any>('get_customer_age_distribution', [start || null, end || null]);
+  const rows = await callFunction<any>('get_customer_age_distribution', [
+    start ? { value: start, type: 'DATE' } : null,
+    end ? { value: end, type: 'DATE' } : null
+  ]);
   return rows;
 }
 
 export async function getCustomerAverageAge(start?: string, end?: string) {
-  const rows = await callFunction<any>('get_customer_average_age', [start || null, end || null]);
+  const rows = await callFunction<any>('get_customer_average_age', [
+    start ? { value: start, type: 'DATE' } : null,
+    end ? { value: end, type: 'DATE' } : null
+  ]);
   return rows[0]?.p_avg || 0;
 }
 

@@ -1,13 +1,12 @@
 /*
- * SCRIPT FINAL V3 - CORRECCIÓN DE UNICIDAD (NO MORE ERRORS)
- * 1. Elimina random en campos UNIQUE (CI, Pasaporte, Email).
- * 2. Mantiene nombres reales y contraseñas.
- * 3. Reinicia todas las secuencias.
+ * SCRIPT FINAL V6 - DATA REFINEMENT
+ * 1. Added Cruise Services (Cruceros).
+ * 2. Enhanced Reviews with specific text.
+ * 3. Varied package costs and dates for 2024 realism.
  */
 
-
 -- =============================================
--- 0. LIMPIEZA TOTAL (Evita conflictos de IDs viejos)
+-- 0. LIMPIEZA TOTAL
 -- =============================================
 TRUNCATE TABLE 
     aud_usu, auditoria, pago, metodoDePago, pro_ser, pre_usu, tur_ser, paq_paq, tag_usu, tag_paq, 
@@ -34,7 +33,6 @@ INSERT INTO lugar (nombre_lug, tipo_lug, fk_cod_lug_padre) VALUES
 ('Egipto', 'Pais', 4), ('Sudáfrica', 'Pais', 4), ('Marruecos', 'Pais', 4), ('Kenia', 'Pais', 4), ('Nigeria', 'Pais', 4),
 ('Australia', 'Pais', 5), ('Nueva Zelanda', 'Pais', 5), ('Fiji', 'Pais', 5), ('Samoa', 'Pais', 5), ('Tonga', 'Pais', 5);
 
--- Venezuela
 INSERT INTO lugar (nombre_lug, tipo_lug, fk_cod_lug_padre) VALUES ('Venezuela', 'Pais', 1);
 
 INSERT INTO lugar (nombre_lug, tipo_lug, fk_cod_lug_padre) 
@@ -76,38 +74,81 @@ WHERE nombre_lug IN ('España', 'Italia', 'Australia', 'Fiji', 'La Guaira', 'Nue
 LIMIT 10;
 
 -- =============================================
--- 3. PROVEEDORES
+-- 3. PROVEEDORES (REALISTIC)
 -- =============================================
-INSERT INTO aerolinea (nombre, f_inicio_servicio_prov, servicio_aer, origen_aer, fk_cod_lug)
-SELECT 'Air ' || nombre_lug, '2010-01-01', 'Comercial', 
-    CASE WHEN tipo_lug = 'Pais' THEN 'Internacional' ELSE 'Nacional' END, cod_lug
-FROM lugar WHERE tipo_lug IN ('Pais', 'Estado') AND nombre_lug != 'Venezuela'
-ORDER BY random() LIMIT 20;
+-- Aerolíneas
+INSERT INTO aerolinea (nombre, f_inicio_servicio_prov, servicio_aer, origen_aer, fk_cod_lug) VALUES
+('American Airlines', '1930-01-01', 'Comercial', 'Internacional', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'Estados Unidos')),
+('Lufthansa', '1953-01-01', 'Comercial', 'Internacional', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'Alemania')),
+('Air France', '1933-01-01', 'Comercial', 'Internacional', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'Francia')),
+('Conviasa', '2004-01-01', 'Comercial', 'Nacional', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'Venezuela')),
+('Avior Airlines', '1994-01-01', 'Comercial', 'Nacional', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'Anzoátegui')),
+('Laser Airlines', '1994-01-01', 'Comercial', 'Nacional', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'Miranda')),
+('Iberia', '1927-01-01', 'Comercial', 'Internacional', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'España')),
+('Qatar Airways', '1993-01-01', 'Comercial', 'Internacional', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'Asia')),
+('Emirates', '1985-01-01', 'Comercial', 'Internacional', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'Asia')),
+('Copa Airlines', '1947-01-01', 'Comercial', 'Internacional', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'America'));
 
-INSERT INTO crucero (nombre, f_inicio_servicio_prov, origen_cru, fk_cod_lug)
-SELECT 'Royal ' || l.nombre_lug || ' Cruise', '2015-06-01', 'Internacional', l.cod_lug
-FROM lugar l JOIN terminal t ON t.fk_cod_lug = l.cod_lug
-WHERE t.tipo_ter = 'Puerto' ORDER BY random() LIMIT 5;
+-- Cruceros
+INSERT INTO crucero (nombre, f_inicio_servicio_prov, origen_cru, fk_cod_lug) VALUES
+('Royal Caribbean', '1968-01-01', 'Internacional', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'Estados Unidos')),
+('MSC Cruises', '1989-01-01', 'Internacional', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'Italia')),
+('Norwegian Cruise Line', '1966-01-01', 'Internacional', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'Estados Unidos')),
+('Carnival Cruise Line', '1972-01-01', 'Internacional', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'Estados Unidos'));
 
-INSERT INTO terrestre (nombre, f_inicio_servicio_prov, fk_cod_lug)
-SELECT 'Rent-a-Car ' || nombre_lug, '2018-01-01', cod_lug
-FROM lugar WHERE tipo_lug = 'Ciudad' ORDER BY random() LIMIT 20;
+-- Terrestre (Alquiler de Vehículos)
+INSERT INTO terrestre (nombre, f_inicio_servicio_prov, fk_cod_lug) VALUES
+('Hertz Rent a Car', '1918-01-01', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'Estados Unidos')),
+('Avis Car Rental', '1946-01-01', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'Estados Unidos')),
+('Sixt Rent a Car', '1912-01-01', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'Alemania')),
+('Budget Rent a Car', '1958-01-01', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'Estados Unidos')),
+('Europcar', '1949-01-01', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'Francia')),
+('Enterprise Rent-A-Car', '1957-01-01', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'Estados Unidos')),
+('Alamo Rent A Car', '1974-01-01', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'Estados Unidos')),
+('Localiza', '1973-01-01', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'Brasil'));
 
-INSERT INTO turistico (nombre, f_inicio_servicio_prov, tipo_servicio_tur, fk_cod_lug)
-SELECT 'Tours ' || nombre_lug, '2020-01-01', 'Excursión', cod_lug
-FROM lugar WHERE tipo_lug IN ('Parque', 'Estado', 'Pais') ORDER BY random() LIMIT 20;
+-- Turístico (Operadores de Tours)
+INSERT INTO turistico (nombre, f_inicio_servicio_prov, tipo_servicio_tur, fk_cod_lug) VALUES
+('Viator Tours', '1995-01-01', 'Plataforma', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'Estados Unidos')),
+('GetYourGuide', '2009-01-01', 'Plataforma', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'Alemania')),
+('Gray Line Tours', '1910-01-01', 'Excursión', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'Estados Unidos')),
+('Tours Venezuela VIP', '2015-01-01', 'Aventura', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'Venezuela')),
+('Canaima Tours', '2010-01-01', 'Aventura', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'Bolívar')),
+('Los Roques Paradise', '2012-01-01', 'Playa', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'La Guaira')),
+('Safari Adventures Kenya', '2000-01-01', 'Safari', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'Kenia')),
+('EuroTrip Operators', '2005-01-01', 'Cultural', (SELECT cod_lug FROM lugar WHERE nombre_lug = 'Europa'));
 
 INSERT INTO hotel (nombre_hot, direccion_hot, tipo_hot, fk_cod_lug)
 (SELECT 'Hotel Gran ' || nombre_lug, 'Centro', '5 Estrellas', cod_lug FROM lugar WHERE tipo_lug = 'Estado' ORDER BY random() LIMIT 10)
 UNION ALL
-(SELECT 'Hotel ' || nombre_lug || ' Palace', 'Downtown', '4 Estrellas', cod_lug FROM lugar WHERE tipo_lug = 'Pais' AND nombre_lug != 'Venezuela' ORDER BY random() LIMIT 10);
+(SELECT 'Hilton ' || nombre_lug, 'Business District', '5 Estrellas', cod_lug FROM lugar WHERE tipo_lug = 'Pais' LIMIT 5)
+UNION ALL
+(SELECT 'Marriott ' || nombre_lug, 'City Center', '4 Estrellas', cod_lug FROM lugar WHERE tipo_lug = 'Pais' LIMIT 5);
 
 INSERT INTO restaurant (nombre_res, tipo_res, ambiente_res, calificacion_res, fk_cod_lug)
-SELECT 'Restaurante Sabor de ' || nombre_lug, 'Local', 'Familiar', 4, cod_lug
+SELECT 'Bistro ' || nombre_lug, 'Gourmet', 'Elegante', 5, cod_lug
 FROM lugar WHERE tipo_lug = 'Ciudad' ORDER BY random() LIMIT 10;
 
 -- =============================================
--- 4. USUARIOS (CORREGIDO - SIN RANDOM EN UNIQUE KEYS)
+-- 4. FLOTA (Vehículos para agencias)
+-- =============================================
+INSERT INTO aeronave (tipo_aer, capacidad_tra, nombre_tra, fk_cod_aerolinea)
+SELECT 'Boeing 737', 160, 'YV-' || generate_series, (SELECT cod FROM aerolinea ORDER BY random() LIMIT 1) FROM generate_series(100, 120);
+
+INSERT INTO barco (capacidad_tra, nombre_tra, fk_cod_crucero)
+SELECT 3000, 'Sea Voyager ' || generate_series, (SELECT cod FROM crucero ORDER BY random() LIMIT 1) FROM generate_series(1, 5);
+
+-- Cada agencia de alquiler tiene vehiculos
+INSERT INTO vehiculo (capacidad_tra, nombre_tra, fk_cod_terrestre)
+SELECT 
+    (ARRAY[4, 5, 7])[floor(random()*3)+1], 
+    (ARRAY['Toyota Corolla', 'Ford Explorer', 'Chevrolet Aveo', 'Nissan Sentra'])[floor(random()*4)+1] || ' #' || generate_series, 
+    t.cod
+FROM terrestre t
+CROSS JOIN generate_series(1, 5); -- 5 cars per agency
+
+-- =============================================
+-- 5. USUARIOS
 -- =============================================
 INSERT INTO rol (nombre_rol) VALUES ('Administrador'), ('Cliente'), ('Proveedor'), ('Auditor'), ('Agente');
 
@@ -123,10 +164,10 @@ DECLARE
     v_email TEXT;
     v_pass TEXT;
     v_ci_base INT;
+    v_birth DATE;
 BEGIN
     FOR estado IN SELECT cod_lug, nombre_lug FROM lugar WHERE tipo_lug = 'Estado' LOOP
-        FOR i IN 1..2 LOOP
-            -- Generación de Nombres
+        FOR i IN 1..4 LOOP 
             v_nombre1 := nombres[1 + floor(random() * array_length(nombres, 1))::int];
             v_apellido1 := apellidos[1 + floor(random() * array_length(apellidos, 1))::int];
             
@@ -139,122 +180,209 @@ BEGIN
                 v_apellido2 := apellidos[1 + floor(random() * array_length(apellidos, 1))::int];
             ELSE v_apellido2 := NULL; END IF;
 
-            -- Generación Determinista de ID único (Evita error Duplicate Key)
-            -- Fórmula: 10 millones + (Código Estado * 1000) + índice del bucle
             v_ci_base := 10000000 + (estado.cod_lug * 1000) + i;
-            
-            -- Email único basado en el ID generado
             v_email := lower(v_nombre1 || '.' || v_apellido1 || v_ci_base || '@gmail.com');
-            v_pass := 'Pass' || v_ci_base;  -- Plain text password (no hashing)
+            v_pass := 'Pass' || v_ci_base;
+            v_birth := '1950-01-01'::DATE + (floor(random() * 20000) || ' days')::interval; -- Random 1950-2005
 
             INSERT INTO usuario (
                 primer_nombre_usu, segundo_nombre_usu,
                 primer_apellido_usu, segundo_apellido_usu,
                 ci_usu, tipo_documento, n_pasaporte_usu, 
                 visa_usu, millas_acum_usu, fk_cod_rol,
-                email_usu, password_usu
+                email_usu, password_usu, fecha_nacimiento
             ) VALUES (
                 v_nombre1, v_nombre2,
                 v_apellido1, v_apellido2,
                 v_ci_base::TEXT, 
                 'V', 
-                (v_ci_base + 50000000)::TEXT, -- Pasaporte también único
+                (v_ci_base + 50000000)::TEXT,
                 (random() > 0.3), 
                 floor(random() * 5000)::int, 
                 2,
                 v_email,
-                v_pass
+                v_pass,
+                v_birth
             );
         END LOOP;
     END LOOP;
 END $$;
 
 -- =============================================
--- 5. SERVICIOS Y PAQUETES
+-- 6. TASAS CAMBIO
 -- =============================================
+INSERT INTO tasa_cambio (moneda, tasa_bs, fecha_hora_tas)
+SELECT 'USD', 35.0 + (g * 0.5) + (random()*2), CAST('2024-01-01' AS TIMESTAMP) + (g || ' weeks')::interval FROM generate_series(0, 50) g;
+
+INSERT INTO tasa_cambio (moneda, tasa_bs, fecha_hora_tas)
+SELECT 'EUR', 38.0 + (g * 0.6) + (random()*2), CAST('2024-01-01' AS TIMESTAMP) + (g || ' weeks')::interval FROM generate_series(0, 50) g;
+
 INSERT INTO tasa_cambio (moneda, tasa_bs, fecha_hora_tas) VALUES ('USD', 45.5, NOW()), ('EUR', 49.1, NOW()), ('MIL', 1, NOW());
+
+-- =============================================
+-- 7. SERVICIOS Y PAQUETES (MIXED TYPES INCL CRUISES)
+-- =============================================
 INSERT INTO plan_pago (nombre_pla, porcen_inicial, frecuencia_pago) VALUES ('Contado', 100, 'Unica'), ('Credito', 30, 'Mensual');
 
+-- 7.1 Vuelos (Flights)
 INSERT INTO servicio (nombre_ser, capacidad_ser, numero_ser, fk_cod_terminal_llega, fk_cod_terminal_sale)
 SELECT 'Vuelo ' || t_sale.nombre_ter || ' -> ' || t_llega.nombre_ter, 180, 'VL-' || t_sale.cod || '-' || t_llega.cod, t_llega.cod, t_sale.cod
-FROM terminal t_sale
-JOIN terminal t_llega ON t_sale.cod != t_llega.cod
-WHERE t_sale.tipo_ter = 'Aeropuerto' AND t_llega.tipo_ter = 'Aeropuerto'
-ORDER BY random() LIMIT 50; 
+FROM terminal t_sale JOIN terminal t_llega ON t_sale.cod != t_llega.cod
+WHERE t_sale.tipo_ter = 'Aeropuerto' AND t_llega.tipo_ter = 'Aeropuerto' ORDER BY random() LIMIT 40;
 
 INSERT INTO ser_aer (fk_servicio, fk_aerolinea)
-SELECT s.cod, a.cod FROM servicio s CROSS JOIN LATERAL (SELECT cod FROM aerolinea ORDER BY random() LIMIT 1) a;
+SELECT s.cod, a.cod 
+FROM servicio s 
+CROSS JOIN LATERAL (SELECT cod FROM aerolinea ORDER BY random() LIMIT 1) a
+WHERE s.nombre_ser LIKE 'Vuelo%';
 
-INSERT INTO paquete_turistico (nombre_paq, descripcion_paq, estado_paq, costo_millas_paq, millaje_paq, huella_de_carbono_paq, fk_cod_tasa_cambio, fk_cod_usuario, fk_cod_plan_pago)
-SELECT 'Vacaciones de ' || u.primer_apellido_usu, 'Viaje familiar anual', 'Activo', 1000, 500, 100, 1, u.cod, 1 FROM usuario u;
+-- 7.2 Tours Excursions
+INSERT INTO servicio (nombre_ser, capacidad_ser, numero_ser, fk_cod_terminal_llega, fk_cod_terminal_sale)
+SELECT 'Tour ' || tu.nombre, 20, 'TR-' || tu.cod || '-' || floor(random()*1000), t.cod, t.cod
+FROM turistico tu
+JOIN terminal t ON t.fk_cod_lug = tu.fk_cod_lug -- Terminal in same location as tour
+LIMIT 30;
 
+INSERT INTO tur_ser (fk_turistico, fk_servicio)
+SELECT tu.cod, s.cod
+FROM servicio s
+JOIN turistico tu ON s.nombre_ser LIKE ('Tour ' || tu.nombre);
+
+-- 7.3 Car Rentals
+INSERT INTO servicio (nombre_ser, capacidad_ser, numero_ser, fk_cod_terminal_llega, fk_cod_terminal_sale)
+SELECT 'Alquiler ' || v.nombre_tra, v.capacidad_tra, 'CR-' || v.cod || '-' || floor(random()*1000), 
+       (SELECT cod FROM terminal ORDER BY random() LIMIT 1), (SELECT cod FROM terminal ORDER BY random() LIMIT 1)
+FROM vehiculo v
+ORDER BY random() LIMIT 30;
+
+INSERT INTO ser_veh (fk_vehiculo, fk_servicio)
+SELECT v.cod, s.cod
+FROM servicio s
+JOIN vehiculo v ON s.nombre_ser = ('Alquiler ' || v.nombre_tra);
+
+-- 7.4 Cruises (Cruceros)
+INSERT INTO servicio (nombre_ser, capacidad_ser, numero_ser, fk_cod_terminal_llega, fk_cod_terminal_sale)
+SELECT 'Crucero ' || b.nombre_tra, b.capacidad_tra, 'SEA-' || b.cod || '-' || floor(random()*1000), 
+       (SELECT cod FROM terminal WHERE tipo_ter='Puerto' ORDER BY random() LIMIT 1), 
+       (SELECT cod FROM terminal WHERE tipo_ter='Puerto' ORDER BY random() LIMIT 1)
+FROM barco b
+ORDER BY random() LIMIT 10;
+
+INSERT INTO ser_cru (fk_crucero, fk_servicio)
+SELECT b.fk_cod_crucero, s.cod
+FROM servicio s
+JOIN barco b ON s.nombre_ser LIKE ('Crucero ' || b.nombre_tra);
+
+-- Paquetes
+INSERT INTO paquete_turistico (
+    nombre_paq, descripcion_paq, estado_paq, costo_millas_paq, millaje_paq, 
+    huella_de_carbono_paq, fk_cod_tasa_cambio, fk_cod_usuario, fk_cod_plan_pago,
+    fecha_cancelacion
+)
+SELECT 
+    'Vacaciones de ' || u.primer_apellido_usu, 'Viaje familiar 2024', 
+    CASE WHEN random() < 0.2 THEN 'Cancelled' ELSE 'Activo' END,
+    1000, 500, 100, 
+    (SELECT cod FROM tasa_cambio WHERE moneda='USD' ORDER BY random() LIMIT 1), 
+    u.cod, 1,
+    CASE WHEN random() < 0.2 THEN (CAST('2024-01-01' AS DATE) + (floor(random()*300) || ' days')::interval) ELSE NULL END
+FROM usuario u;
+UPDATE paquete_turistico SET fecha_cancelacion = NULL WHERE estado_paq != 'Cancelled';
+UPDATE paquete_turistico SET fecha_cancelacion = (CAST('2024-01-01' AS DATE) + (floor(random()*300) || ' days')::interval) WHERE estado_paq = 'Cancelled' AND fecha_cancelacion IS NULL;
+
+-- Link Services to Packages (Ensure mix of Flights, Tours, Rentals, Cruises)
 INSERT INTO ser_paq (fk_servicio, fk_paquete, costo_ser, inicio_ser, fin_ser, millaje_ser)
-SELECT (SELECT cod FROM servicio ORDER BY random() LIMIT 1), p.cod, 300, NOW(), NOW() + INTERVAL '5 days', 100 FROM paquete_turistico p;
+SELECT 
+    s.cod, p.cod, 
+    CASE 
+        WHEN s.nombre_ser LIKE 'Vuelo%' THEN 300 + floor(random()*200) -- Flight Cost
+        WHEN s.nombre_ser LIKE 'Crucero%' THEN 800 + floor(random()*500) -- Cruise Cost (High value)
+        WHEN s.nombre_ser LIKE 'Tour%' THEN 100 + floor(random()*150)   -- Tour Cost
+        WHEN s.nombre_ser LIKE 'Alquiler%' THEN 50 + floor(random()*100) -- Rental Cost
+        ELSE 150 
+    END,
+    (CAST('2024-01-01' AS DATE) + (floor(random()*300) || ' days')::interval),
+    (CAST('2024-01-01' AS DATE) + (floor(random()*300) || ' days')::interval) + INTERVAL '5 days', 
+    100 
+FROM paquete_turistico p
+JOIN servicio s ON s.cod = (SELECT cod FROM servicio ORDER BY random() LIMIT 1); -- Random service per package
 
-INSERT INTO hot_paq (fk_hotel, fk_paquete, numero_habitacion_hot, inicio_estadia_hot, fin_estadia_hot, millaje_hot, costo_reserva_hot)
-SELECT (SELECT cod FROM hotel ORDER BY random() LIMIT 1), p.cod, 'HB-'||floor(random()*500), NOW() + INTERVAL '1 day', NOW() + INTERVAL '5 days', 200, 500 FROM paquete_turistico p;
+-- Add EXTRA services per package (Tours/Rentals likely)
+INSERT INTO ser_paq (fk_servicio, fk_paquete, costo_ser, inicio_ser, fin_ser, millaje_ser)
+SELECT 
+    s.cod, p.cod, 
+    120,
+    (CAST('2024-01-01' AS DATE) + (floor(random()*300) || ' days')::interval),
+    (CAST('2024-01-01' AS DATE) + (floor(random()*300) || ' days')::interval) + INTERVAL '3 days', 
+    50 
+FROM paquete_turistico p
+JOIN servicio s ON s.cod = (SELECT cod FROM servicio WHERE nombre_ser LIKE 'Tour%' OR nombre_ser LIKE 'Alquiler%' ORDER BY random() LIMIT 1) 
+WHERE random() > 0.4;
 
 -- =============================================
--- 6. MÉTODOS DE PAGO
+-- 8. PAGO Y METODOS
 -- =============================================
 INSERT INTO metodoDePago (descripcion_met, fk_usuario, tipoMetodo, n_confirm_zel, f_hora_zel, n_ref_pag, f_hora_pag)
 SELECT 
     CASE WHEN (u.cod % 2) = 0 THEN 'Zelle ' || u.primer_nombre_usu ELSE 'Pago Movil Banesco' END,
     u.cod,
     CASE WHEN (u.cod % 2) = 0 THEN 'Zelle' ELSE 'PagoMovil' END,
-    -- Referencias deterministas para evitar colisiones
     CASE WHEN (u.cod % 2) = 0 THEN 'Z-' || (u.cod * 12345) || '-CONF' ELSE NULL END,
-    CASE WHEN (u.cod % 2) = 0 THEN NOW() ELSE NULL END,
+    CASE WHEN (u.cod % 2) = 0 THEN CAST('2024-01-01' AS TIMESTAMP) + (floor(random()*350) || ' days')::interval ELSE NULL END,
     CASE WHEN (u.cod % 2) != 0 THEN 'PM-' || (u.cod * 67890) || '-REF' ELSE NULL END,
-    CASE WHEN (u.cod % 2) != 0 THEN NOW() ELSE NULL END
+    CASE WHEN (u.cod % 2) != 0 THEN CAST('2024-01-01' AS TIMESTAMP) + (floor(random()*350) || ' days')::interval ELSE NULL END
 FROM usuario u;
 
-INSERT INTO usuario (email_usu,password_usu,primer_nombre_usu,segundo_nombre_usu,primer_apellido_usu,segundo_apellido_usu,ci_usu,tipo_documento,n_pasaporte_usu,visa_usu,millas_acum_usu,fk_cod_rol) 
-    VALUES ('test@gmail.com','test','Test',NULL,  'User',  NULL, '99999999', 'V','99999999', false,0,1 );
-
-
+INSERT INTO usuario (email_usu,password_usu,primer_nombre_usu,segundo_nombre_usu,primer_apellido_usu,segundo_apellido_usu,ci_usu,tipo_documento,n_pasaporte_usu,visa_usu,millas_acum_usu,fk_cod_rol, fecha_nacimiento) 
+    VALUES ('test@gmail.com','test','Test',NULL,  'User',  NULL, '99999999', 'V','99999999', false,0,1, '1990-01-01' );
 
 INSERT INTO pago (monto_pago, fecha_pago, fk_cod_paquete, fk_metodo_pago)
-SELECT 800 + floor(random()*200), NOW(), p.cod, (SELECT cod FROM metodoDePago WHERE fk_usuario=p.fk_cod_usuario LIMIT 1) 
+SELECT 
+    1500, 
+    CAST('2024-01-01' AS TIMESTAMP) + (floor(random()*350) || ' days')::interval,
+    p.cod, 
+    (SELECT cod FROM metodoDePago WHERE fk_usuario=p.fk_cod_usuario LIMIT 1) 
 FROM paquete_turistico p;
 
 -- =============================================
--- 7. TABLAS DE RELLENO (10 Registros)
+-- 9. REVIEWS & OTHERS (AUTHENTIC REVIEWS)
 -- =============================================
-INSERT INTO aeronave (tipo_aer, capacidad_tra, nombre_tra, fk_cod_aerolinea)
-SELECT 'Airbus A320', 180, 'Avion-' || generate_series, (SELECT cod FROM aerolinea ORDER BY random() LIMIT 1) FROM generate_series(1, 20);
-
-INSERT INTO barco (capacidad_tra, nombre_tra, fk_cod_crucero)
-SELECT 2000, 'Barco-' || generate_series, (SELECT cod FROM crucero ORDER BY random() LIMIT 1) FROM generate_series(1, 10);
-
-INSERT INTO vehiculo (capacidad_tra, nombre_tra, fk_cod_terrestre)
-SELECT 4, 'Carro-' || generate_series, (SELECT cod FROM terrestre ORDER BY random() LIMIT 1) FROM generate_series(1, 20);
-
-INSERT INTO privilegio (descripcion_priv) VALUES ('Login'), ('Crear Reserva'), ('Editar Reserva'), ('Ver Pagos'), ('Gestionar Usuarios'), ('Reportes Admin'), ('Auditoria'), ('Crear Proveedor'), ('Eliminar Proveedor'), ('Configurar Tasas');
-INSERT INTO priv_rol (fk_cod_rol, fk_cod_privilegio) VALUES (1, 1), (1, 2); 
-
-INSERT INTO auditoria (descripcion) VALUES
-('Inicio de sesión exitoso'), ('Intento de sesión fallido'), ('Cambio de contraseña'), ('Compra de paquete'), ('Actualización de perfil'),
-('Consulta de reporte de ventas'), ('Creación de usuario admin'), ('Eliminación de reserva'), ('Carga de pago'), ('Generación de factura');
-
-INSERT INTO reseña (descripcion_res, rating_res, fk_cod_usuario, fk_cod_lugar, fk_cod_hotel) 
+INSERT INTO hot_paq (fk_hotel, fk_paquete, numero_habitacion_hot, inicio_estadia_hot, fin_estadia_hot, millaje_hot, costo_reserva_hot)
 SELECT 
-    (ARRAY['Excelente servicio', 'El hotel estaba sucio', 'La comida deliciosa', 'Muy buena atención', 'El vuelo se retrasó', 'Volvería a ir', 'No lo recomiendo', 'Regular', 'Increíble experiencia', 'El personal fue amable'])[floor(random()*10)+1],
-    floor(random()*5)+1, 1, 1, 1 
-FROM generate_series(1, 10);
+    (SELECT cod FROM hotel ORDER BY random() LIMIT 1), 
+    p.cod, 'HB-'||floor(random()*500), 
+    (CAST('2024-01-01' AS DATE) + (floor(random()*300) || ' days')::interval),
+    (CAST('2024-01-01' AS DATE) + (floor(random()*300) || ' days')::interval) + INTERVAL '5 days', 
+    200, 500 
+FROM paquete_turistico p;
+
+INSERT INTO reseña (descripcion_res, rating_res, fk_cod_usuario, fk_cod_lugar, fk_cod_hotel)
+SELECT 
+    (ARRAY[
+        'Absolutely stunning views and excellent service. Will come again!', 
+        'Room was dirty and AC did not work. Very disappointed.', 
+        'Great location but the staff was a bit rude.', 
+        'Breakfast was amazing! Best pancakes ever.', 
+        'Too noisy at night, could not sleep.', 
+        'Perfect for a family vacation. Kids loved the pool.',
+        'Overpriced for what you get. Wifi was terrible.',
+        'Clean, comfortable, and friendly. Highly recommended.',
+        'Found a cockroach in the bathroom. Never returning.',
+        'Review pending.'
+    ])[floor(random()*10)+1],
+    (ARRAY[5, 1, 3, 5, 2, 5, 2, 4, 1, 3])[floor(random()*10)+1],
+    (SELECT fk_cod_usuario FROM paquete_turistico WHERE cod = hp.fk_paquete),
+    1,
+    hp.fk_hotel
+FROM hot_paq hp 
+WHERE random() > 0.3 -- 70% of stays get a review
+ORDER BY random() LIMIT 100;
 
 INSERT INTO reclamo (descripcion_rec, estado_rec, fk_cod_usuario, fk_cod_paquete)
-SELECT 
-    (ARRAY['Aire acondicionado dañado', 'Maletas perdidas', 'Cobro indebido', 'Retraso excesivo', 'Habitación ruidosa', 'Sin agua caliente', 'Trato grosero', 'Reserva no encontrada', 'Comida en mal estado', 'Cancelación injustificada'])[floor(random()*10)+1],
-    (ARRAY['Abierto', 'En Proceso', 'Cerrado'])[floor(random()*3)+1], 1, 1 
-FROM generate_series(1, 10);
+SELECT 'Refund not processed for cancelled tour.', 'Abierto', 1, 1;
 
 INSERT INTO tag (nombre_tag, condicion1_tag, condicional_tag, condicion2_tag, restriccion_tag) SELECT 'Tag '||g, 'C1','AND','C2', false FROM generate_series(1,10) g;
-INSERT INTO promocion (tipo_pro, porcen_descuento)
-SELECT 
-    'Descuento del ' || (g * 5) || '%', 
-    (g * 5)
-FROM generate_series(1, 10) g;
-INSERT INTO preferencia (descripcion_pre) VALUES ('Ventana'), ('Pasillo'), ('Comida Vegetariana'), ('Primera Clase'), ('Hotel con Piscina'), ('Vista al mar'), ('Cama King'), ('Pet Friendly'), ('Wifi de alta velocidad'), ('Transporte incluido');
-INSERT INTO telefono (cod_area_tel, numero_tel, tipo_tel, fk_cod_aer) SELECT '0414', floor(random()*8999999 + 1000000)::text, 'Movil', 1 FROM generate_series(1,10) g;
-INSERT INTO deseo (descripcion_des, fk_cod_usuario, fk_cod_lugar) SELECT 'Quiero visitar ' || nombre_lug, 1, cod_lug FROM lugar WHERE tipo_lug = 'Pais' LIMIT 10;
+INSERT INTO promocion (tipo_pro, porcen_descuento) SELECT 'Promo '||g, g*5 FROM generate_series(1,10) g;
+INSERT INTO preferencia (descripcion_pre) VALUES ('Ventana'), ('Pasillo');
+INSERT INTO telefono (cod_area_tel, numero_tel, tipo_tel, fk_cod_aer) SELECT '0414', '1234567', 'Movil', 1;
+INSERT INTO deseo (descripcion_des, fk_cod_usuario, fk_cod_lugar) SELECT 'Visitar '||nombre_lug, 1, cod_lug FROM lugar WHERE tipo_lug='Pais' LIMIT 10;

@@ -1,23 +1,25 @@
 import { useState, useEffect } from 'react';
 import { getNegativeReviews, getExchangeRatesHistory, getOperatorPerformance, getRefundsAudit, getCustomerAgeDistribution, getCustomerAverageAge } from '../services/database';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } from 'recharts';
-import { Calendar, TrendingDown, DollarSign, Users, AlertCircle } from 'lucide-react';
+import { FileText, Download, TrendingDown, DollarSign, Users, AlertCircle, Award } from 'lucide-react';
 
 export function Reports() {
   const [dateRange, setDateRange] = useState({ start: '2024-01-01', end: '2024-12-31' });
-  // Data should come from stored procedures / functions.
+  const [loading, setLoading] = useState(false);
+
+  // Data state
   const [negativeReviews, setNegativeReviews] = useState<any[]>([]);
-  const [exchangeRatesChart, setExchangeRatesChart] = useState<any[]>([]);
-  const [exchangeRatesTable, setExchangeRatesTable] = useState<any[]>([]);
+  const [exchangeRates, setExchangeRates] = useState<any[]>([]);
   const [operatorPerformance, setOperatorPerformance] = useState<any[]>([]);
   const [refundsAudit, setRefundsAudit] = useState<any[]>([]);
-  const [averageAge, setAverageAge] = useState<number>(0);
   const [ageDistribution, setAgeDistribution] = useState<any[]>([]);
+  const [averageAge, setAverageAge] = useState<number>(0);
 
+  // Fetch data on mount or date change
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
+        setLoading(true);
         const [neg, rates, ops, refunds, ageDist, avgAge] = await Promise.all([
           getNegativeReviews(dateRange.start, dateRange.end).catch(() => []),
           getExchangeRatesHistory(dateRange.start, dateRange.end).catch(() => []),
@@ -28,315 +30,223 @@ export function Reports() {
         ]);
         if (!mounted) return;
         setNegativeReviews(neg || []);
-        // Normalize exchange rates into chart/table shapes
-        setExchangeRatesChart((rates || []).map((r: any) => ({ date: new Date(r.p_fecha).toLocaleDateString(), USD: r.p_moneda === 'USD' ? Number(r.p_tasa_bs) : undefined })));
-        setExchangeRatesTable((rates || []).slice(0,3));
+        setExchangeRates(rates || []);
         setOperatorPerformance(ops || []);
         setRefundsAudit(refunds || []);
         setAgeDistribution(ageDist || []);
         setAverageAge(Number(avgAge) || 0);
       } catch (err) {
         console.error('Failed to load reports', err);
+      } finally {
+        if (mounted) setLoading(false);
       }
     })();
     return () => { mounted = false; };
   }, [dateRange.start, dateRange.end]);
 
+  const generatePDF = async (reportType: string) => {
+    try {
+      const { default: jsPDF } = await import('jspdf');
+      const { default: autoTable } = await import('jspdf-autotable');
+      const doc = new jsPDF();
+
+      // Header Helper
+      const addHeader = (title: string) => {
+        doc.setFontSize(20);
+        doc.text(title, 14, 22);
+        doc.setFontSize(10);
+        doc.text(`Generated on: ${new Date().toLocaleDateString()}`, 14, 28);
+        doc.text(`Period: ${dateRange.start} to ${dateRange.end}`, 14, 32);
+        return 40; // startY
+      };
+
+      if (reportType === 'negative_reviews') {
+        const y = addHeader('Negative Reviews Report');
+        doc.text('Reviews with rating <= 2 stars', 14, y - 5);
+        autoTable(doc, {
+          startY: y,
+          head: [['Hotel', 'Date', 'Rating', 'Comment']],
+          body: negativeReviews.map(r => [r.hotelName, r.date, r.rating, r.comment]),
+        });
+        if (negativeReviews.length === 0) {
+          doc.text('No data available for this period.', 14, y + 10);
+        }
+        doc.save('negative_reviews.pdf');
+      }
+      else if (reportType === 'exchange_rates') {
+        const y = addHeader('Exchange Rates History');
+        autoTable(doc, {
+          startY: y,
+          head: [['Date', 'Currency', 'Rate (Bs)']],
+          body: exchangeRates.map(r => [new Date(r.p_fecha).toLocaleDateString(), r.p_moneda, Number(r.p_tasa_bs).toFixed(2)]),
+        });
+        if (exchangeRates.length === 0) {
+          doc.text('No data available for this period.', 14, y + 10);
+        }
+        doc.save('exchange_rates.pdf');
+      }
+      else if (reportType === 'operator_performance') {
+        const y = addHeader('Operator Performance Report');
+        autoTable(doc, {
+          startY: y,
+          head: [['Rank', 'Operator', 'Revenue', 'Cost', 'Net Profit']],
+          body: operatorPerformance.map(o => [
+            o.rank,
+            o.operator,
+            `$${Number(o.revenue).toLocaleString()}`,
+            `$${Number(o.serviceCost).toLocaleString()}`,
+            `$${(Number(o.revenue) - Number(o.serviceCost)).toLocaleString()}`
+          ]),
+        });
+        if (operatorPerformance.length === 0) {
+          doc.text('No data available for this period.', 14, y + 10);
+        }
+        doc.save('operator_performance.pdf');
+      }
+      else if (reportType === 'refunds_audit') {
+        const y = addHeader('Refunds Audit Report');
+        autoTable(doc, {
+          startY: y,
+          head: [['ID', 'Total', 'Penalty', 'Refund', 'Date']],
+          body: refundsAudit.map(r => [
+            r.reservationId,
+            `$${Number(r.totalAmount).toLocaleString()}`,
+            `-$${Number(r.penalty).toLocaleString()}`,
+            `$${Number(r.refundAmount).toLocaleString()}`,
+            r.processDate
+          ]),
+        });
+        if (refundsAudit.length === 0) {
+          doc.text('No data available for this period.', 14, y + 10);
+        }
+        doc.save('refunds_audit.pdf');
+      }
+      else if (reportType === 'demographics') {
+        const y = addHeader('Customer Demographics Report');
+        doc.setFontSize(12);
+        doc.text(`Average Customer Age: ${averageAge} years`, 14, y);
+
+        autoTable(doc, {
+          startY: y + 10,
+          head: [['Age Range', 'Count']],
+          body: ageDistribution.map(a => [a.range, a.count]),
+        });
+        if (ageDistribution.length === 0) {
+          doc.text('No data available for this period.', 14, y + 25);
+        }
+        doc.save('customer_demographics.pdf');
+      }
+
+    } catch (err) {
+      console.error('Failed to generate PDF', err);
+      alert('Error generating PDF. Please check console.');
+    }
+  };
+
+  const reportsList = [
+    {
+      id: 'negative_reviews',
+      title: 'Negative Reviews',
+      description: 'Detailed list of hotel reviews with 1 or 2 stars.',
+      icon: TrendingDown,
+      color: 'text-red-600',
+      bgColor: 'bg-red-50',
+      count: negativeReviews.length
+    },
+    {
+      id: 'exchange_rates',
+      title: 'Exchange Rates History',
+      description: 'Historical fluctuation of USD, EUR, and USDT vs VES.',
+      icon: DollarSign,
+      color: 'text-green-600',
+      bgColor: 'bg-green-50',
+      count: exchangeRates.length
+    },
+    {
+      id: 'operator_performance',
+      title: 'Operator Performance',
+      description: 'Ranking of tour and transport operators by revenue.',
+      icon: Award,
+      color: 'text-blue-600',
+      bgColor: 'bg-blue-50',
+      count: operatorPerformance.length
+    },
+    {
+      id: 'refunds_audit',
+      title: 'Refunds Audit',
+      description: 'Log of cancelled reservations and processed refunds.',
+      icon: AlertCircle,
+      color: 'text-orange-600',
+      bgColor: 'bg-orange-50',
+      count: refundsAudit.length
+    },
+    {
+      id: 'demographics',
+      title: 'Customer Demographics',
+      description: 'Age distribution and average age of your user base.',
+      icon: Users,
+      color: 'text-purple-600',
+      bgColor: 'bg-purple-50',
+      count: `${averageAge} avg`
+    }
+  ];
+
   return (
-    <div>
-      {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-[var(--color-text-primary)] mb-2">
-          Reports Dashboard
-        </h1>
-        <p className="text-[var(--color-text-secondary)]">
-          View analytics and generate business reports
-        </p>
+    <div className="p-6">
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold text-[var(--color-text-primary)] mb-2">Reports Center</h1>
+        <p className="text-[var(--color-text-secondary)]">Generate and download official business reports.</p>
       </div>
 
-      {/* Dashboard Grid */}
-      <div className="space-y-6">
-        {/* Row 1: Negative Reviews + Customer Demographics */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Widget 1: Negative Reviews */}
-          <div className="lg:col-span-2 bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg">
-            <div className="p-6 border-b border-[var(--color-border)]">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-red-50 rounded-lg flex items-center justify-center">
-                  <TrendingDown className="w-5 h-5 text-red-600" />
-                </div>
-                <div>
-                  <h2 className="text-[var(--color-text-primary)]">
-                    Negative Reviews
-                  </h2>
-                  <p className="text-[var(--color-text-secondary)] text-sm">Recent 1-2 star feedback</p>
-                </div>
-              </div>
-            </div>
-            <div className="p-6">
-              <div className="space-y-4 max-h-96 overflow-y-auto">
-                {negativeReviews.map(review => (
-                  <div key={review.id} className="p-4 bg-[var(--color-background)] rounded-lg border border-[var(--color-border)]">
-                    <div className="flex items-start justify-between mb-2">
-                      <div>
-                        <p className="text-[var(--color-text-primary)]">{review.hotelName}</p>
-                        <p className="text-[var(--color-text-secondary)] text-sm">{review.date}</p>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        {[...Array(review.rating)].map((_, i) => (
-                          <span key={i} className="text-yellow-500">★</span>
-                        ))}
-                        {[...Array(5 - review.rating)].map((_, i) => (
-                          <span key={i} className="text-gray-300">★</span>
-                        ))}
-                      </div>
-                    </div>
-                    <p className="text-[var(--color-text-secondary)] text-sm italic">"{review.comment}"</p>
-                  </div>
-                ))}
-              </div>
-            </div>
+      {/* Date Filter */}
+      <div className="bg-[var(--color-card)] p-4 rounded-lg border border-[var(--color-border)] mb-8 flex items-center gap-4 max-w-2xl">
+        <FileText className="text-[var(--color-text-secondary)]" />
+        <div className="flex-1 grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs text-[var(--color-text-secondary)] mb-1">Start Date</label>
+            <input
+              type="date"
+              value={dateRange.start}
+              onChange={e => setDateRange({ ...dateRange, start: e.target.value })}
+              className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-1 text-sm"
+            />
           </div>
-
-          {/* Widget 5: Customer Demographics */}
-          <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg">
-            <div className="p-6 border-b border-[var(--color-border)]">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 bg-purple-50 rounded-lg flex items-center justify-center">
-                  <Users className="w-5 h-5 text-purple-600" />
-                </div>
-                <div>
-                  <h2 className="text-[var(--color-text-primary)]">
-                    Customer Demographics
-                  </h2>
-                  <p className="text-[var(--color-text-secondary)] text-sm">Age distribution analysis</p>
-                </div>
-              </div>
-              
-              {/* Date Range Picker */}
-              <div className="space-y-2">
-                <label className="block text-[var(--color-text-primary)] text-sm">
-                  <Calendar className="w-4 h-4 inline mr-2" />
-                  Date Range
-                </label>
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    type="date"
-                    value={dateRange.start}
-                    onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
-                    className="px-3 py-2 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] text-sm"
-                  />
-                  <input
-                    type="date"
-                    value={dateRange.end}
-                    onChange={(e) => setDateRange({ ...dateRange, end: e.target.value })}
-                    className="px-3 py-2 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] text-sm"
-                  />
-                </div>
-              </div>
-            </div>
-            
-            <div className="p-6">
-              {/* Average Age Metric */}
-              <div className="text-center mb-6 p-6 bg-purple-50 rounded-lg">
-                <p className="text-[var(--color-text-secondary)] text-sm mb-2">Average Customer Age</p>
-                <p className="text-purple-600 text-4xl mb-1">{averageAge}</p>
-                <p className="text-[var(--color-text-secondary)] text-xs">years old</p>
-              </div>
-
-              {/* Age Distribution Bar Chart */}
-              <div style={{ width: '300px', height: '192px' }}>
-                <ResponsiveContainer width={300} height={192}>
-                  <BarChart data={ageDistribution}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="range" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip />
-                    <Bar dataKey="count" fill="#9333ea" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
+          <div>
+            <label className="block text-xs text-[var(--color-text-secondary)] mb-1">End Date</label>
+            <input
+              type="date"
+              value={dateRange.end}
+              onChange={e => setDateRange({ ...dateRange, end: e.target.value })}
+              className="w-full bg-[var(--color-background)] border border-[var(--color-border)] rounded px-2 py-1 text-sm"
+            />
           </div>
         </div>
+      </div>
 
-        {/* Row 2: Exchange Rates History */}
-        <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg">
-          <div className="p-6 border-b border-[var(--color-border)]">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-green-50 rounded-lg flex items-center justify-center">
-                <DollarSign className="w-5 h-5 text-green-600" />
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {reportsList.map(report => (
+          <div key={report.id} className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl p-6 hover:shadow-lg transition-shadow">
+            <div className="flex items-start justify-between mb-4">
+              <div className={`w-12 h-12 ${report.bgColor} rounded-lg flex items-center justify-center`}>
+                <report.icon className={`w-6 h-6 ${report.color}`} />
               </div>
-              <div>
-                <h2 className="text-[var(--color-text-primary)]">
-                  Exchange Rates History
-                </h2>
-                <p className="text-[var(--color-text-secondary)] text-sm">USD, EUR, USDT vs VES (Venezuelan Bolívar)</p>
-              </div>
+              <span className="bg-[var(--color-background)] text-[var(--color-text-secondary)] text-xs px-2 py-1 rounded-full border border-[var(--color-border)]">
+                {report.count} records
+              </span>
             </div>
-          </div>
-          <div className="p-6">
-            {/* Line Chart */}
-            <div style={{ width: '1000px', height: '256px', maxWidth: '100%' }}>
-              <ResponsiveContainer width="100%" height={256}>
-                <LineChart data={exchangeRatesChart}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis dataKey="date" />
-                  <YAxis />
-                  <Tooltip />
-                  <Legend />
-                  <Line type="monotone" dataKey="USD" stroke="#3b82f6" strokeWidth={2} dot={{ r: 4 }} />
-                  <Line type="monotone" dataKey="EUR" stroke="#10b981" strokeWidth={2} dot={{ r: 4 }} />
-                  <Line type="monotone" dataKey="USDT" stroke="#f59e0b" strokeWidth={2} dot={{ r: 4 }} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
+            <h3 className="text-lg font-semibold text-[var(--color-text-primary)] mb-2">{report.title}</h3>
+            <p className="text-[var(--color-text-secondary)] text-sm mb-6 h-10">{report.description}</p>
 
-            {/* Exchange Rates Data Table */}
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-[var(--color-background)] border-b border-[var(--color-border)]">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-[var(--color-text-primary)] text-sm">Currency</th>
-                    <th className="px-4 py-3 text-left text-[var(--color-text-primary)] text-sm">Current Rate (VES)</th>
-                    <th className="px-4 py-3 text-left text-[var(--color-text-primary)] text-sm">Previous Rate (VES)</th>
-                    <th className="px-4 py-3 text-left text-[var(--color-text-primary)] text-sm">Change</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[var(--color-border)]">
-                  {exchangeRatesTable.map(rate => (
-                    <tr key={rate.currency} className="hover:bg-[var(--color-background)]">
-                      <td className="px-4 py-3 text-[var(--color-text-primary)]">{rate.currency}</td>
-                      <td className="px-4 py-3 text-[var(--color-text-primary)]">{rate.current.toFixed(2)}</td>
-                      <td className="px-4 py-3 text-[var(--color-text-secondary)]">{rate.previous.toFixed(2)}</td>
-                      <td className="px-4 py-3">
-                        <span className="text-green-600">{rate.change}</span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <button
+              onClick={() => generatePDF(report.id)}
+              disabled={loading}
+              className="w-full flex items-center justify-center gap-2 bg-[var(--color-primary-blue)] hover:bg-blue-700 text-white py-2 rounded-lg transition-colors disabled:opacity-50"
+            >
+              <Download className="w-4 h-4" />
+              Download PDF
+            </button>
           </div>
-        </div>
-
-        {/* Row 3: Operator Performance */}
-        <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg">
-          <div className="p-6 border-b border-[var(--color-border)]">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
-                <TrendingDown className="w-5 h-5 text-blue-600 transform rotate-180" />
-              </div>
-              <div>
-                <h2 className="text-[var(--color-text-primary)]">
-                  Operator Performance
-                </h2>
-                <p className="text-[var(--color-text-secondary)] text-sm">Ranked by revenue generated</p>
-              </div>
-            </div>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-[var(--color-background)] border-b border-[var(--color-border)]">
-                <tr>
-                  <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Rank</th>
-                  <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Tour Operator</th>
-                  <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Revenue Generated</th>
-                  <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Service Cost</th>
-                  <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Net Profit</th>
-                  <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Duration</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--color-border)]">
-                {operatorPerformance.map(operator => {
-                  const netProfit = operator.revenue - operator.serviceCost;
-                  return (
-                    <tr key={operator.rank} className="hover:bg-[var(--color-background)]">
-                      <td className="px-6 py-4">
-                        <div className="w-8 h-8 bg-[var(--color-primary-blue)] text-white rounded-full flex items-center justify-center">
-                          {operator.rank}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-[var(--color-text-primary)]">{operator.operator}</td>
-                      <td className="px-6 py-4 text-[var(--color-text-primary)]">${operator.revenue.toLocaleString()}</td>
-                      <td className="px-6 py-4 text-[var(--color-text-secondary)]">${operator.serviceCost.toLocaleString()}</td>
-                      <td className="px-6 py-4 text-green-600">${netProfit.toLocaleString()}</td>
-                      <td className="px-6 py-4 text-[var(--color-text-secondary)]">{operator.duration}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Row 4: Refunds Audit */}
-        <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg">
-          <div className="p-6 border-b border-[var(--color-border)]">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center">
-                <AlertCircle className="w-5 h-5 text-orange-600" />
-              </div>
-              <div>
-                <h2 className="text-[var(--color-text-primary)]">
-                  Refunds Audit
-                </h2>
-                <p className="text-[var(--color-text-secondary)] text-sm">Cancelled reservations and refund details</p>
-              </div>
-            </div>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-[var(--color-background)] border-b border-[var(--color-border)]">
-                <tr>
-                  <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Reservation ID</th>
-                  <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Total Amount</th>
-                  <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Penalty (10%)</th>
-                  <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Refund Amount (90%)</th>
-                  <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Process Date</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--color-border)]">
-                {refundsAudit.map(refund => (
-                  <tr key={refund.reservationId} className="hover:bg-[var(--color-background)]">
-                    <td className="px-6 py-4">
-                      <span className="text-[var(--color-primary-blue)] font-mono text-sm">
-                        {refund.reservationId}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-[var(--color-text-primary)]">
-                      ${refund.totalAmount.toLocaleString()}
-                    </td>
-                    <td className="px-6 py-4 text-red-600">
-                      -${refund.penalty.toLocaleString()}
-                    </td>
-                    <td className="px-6 py-4 text-green-600">
-                      ${refund.refundAmount.toLocaleString()}
-                    </td>
-                    <td className="px-6 py-4 text-[var(--color-text-secondary)]">
-                      {refund.processDate}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot className="bg-[var(--color-background)] border-t-2 border-[var(--color-border)]">
-                <tr>
-                  <td className="px-6 py-4 text-[var(--color-text-primary)]">Total</td>
-                  <td className="px-6 py-4 text-[var(--color-text-primary)]">
-                    ${refundsAudit.reduce((sum, r) => sum + r.totalAmount, 0).toLocaleString()}
-                  </td>
-                  <td className="px-6 py-4 text-red-600">
-                    -${refundsAudit.reduce((sum, r) => sum + r.penalty, 0).toLocaleString()}
-                  </td>
-                  <td className="px-6 py-4 text-green-600">
-                    ${refundsAudit.reduce((sum, r) => sum + r.refundAmount, 0).toLocaleString()}
-                  </td>
-                  <td className="px-6 py-4"></td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>
+        ))}
       </div>
     </div>
   );
