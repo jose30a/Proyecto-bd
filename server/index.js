@@ -26,6 +26,7 @@ app.use(cors({
 app.options('*', cors());
 app.use(express.json());
 
+//database
 // Database connection pool
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
