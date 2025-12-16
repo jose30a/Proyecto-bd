@@ -20,7 +20,7 @@ interface Booking {
 }
 
 export function MyBookings() {
-  const [filter, setFilter] = useState<'upcoming' | 'past'>('upcoming');
+
 
 
 
@@ -59,19 +59,7 @@ export function MyBookings() {
     }
   };
 
-  // Filter bookings based on selected filter
-  const today = new Date();
-  const filteredBookings = bookings.filter(booking => {
-    const startDate = new Date(booking.startDate);
-    const endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + booking.duration);
 
-    if (filter === 'upcoming') {
-      return endDate >= today && booking.status !== 'Cancelled';
-    } else {
-      return endDate < today || booking.status === 'Cancelled';
-    }
-  });
 
   const getStatusBadgeStyles = (status: BookingStatus): string => {
     switch (status) {
@@ -109,177 +97,102 @@ export function MyBookings() {
           My Trips
         </h1>
         <p className="text-[var(--color-text-secondary)]">
-          View and manage your travel bookings
+          View and manage all your travel bookings
         </p>
-      </div>
-
-      {/* Filter Tabs */}
-      <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg p-2 mb-6 inline-flex gap-2">
-        <button
-          onClick={() => setFilter('upcoming')}
-          className={`px-6 py-2.5 rounded-md transition-all ${filter === 'upcoming'
-            ? 'bg-[var(--color-primary-blue)] text-white'
-            : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-background)]'
-            }`}
-        >
-          Upcoming Trips
-        </button>
-        <button
-          onClick={() => setFilter('past')}
-          className={`px-6 py-2.5 rounded-md transition-all ${filter === 'past'
-            ? 'bg-[var(--color-primary-blue)] text-white'
-            : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-background)]'
-            }`}
-        >
-          Past History
-        </button>
       </div>
 
       {/* Bookings Count */}
       <div className="mb-6">
         <p className="text-[var(--color-text-secondary)] text-sm">
-          {filteredBookings.length} {filteredBookings.length === 1 ? 'booking' : 'bookings'} found
+          {bookings.length} {bookings.length === 1 ? 'booking' : 'bookings'} found
         </p>
       </div>
 
       {/* Bookings List */}
-      {filteredBookings.length > 0 ? (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {filteredBookings.map(booking => (
+      {bookings.length > 0 ? (
+        <div className="space-y-4">
+          {bookings.map(booking => (
             <div
               key={booking.id}
-              className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg overflow-hidden hover:shadow-lg transition-shadow"
+              className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg p-6 hover:shadow-md transition-shadow flex flex-col md:flex-row md:items-center justify-between gap-6"
             >
-              {/* Image */}
-              <div className="relative h-48 overflow-hidden">
-                <ImageWithFallback
-                  src={booking.imageUrl}
-                  alt={booking.packageName}
-                  className="w-full h-full object-cover"
-                />
-                {/* Status Badge Overlay */}
-                <div className="absolute top-4 right-4">
-                  <span
-                    className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs border ${getStatusBadgeStyles(
-                      booking.status
-                    )}`}
-                  >
-                    {booking.status}
-                  </span>
+              {/* Main Info */}
+              <div className="flex-1">
+                <div className="mb-2">
+                  <h3 className="text-lg font-semibold text-[var(--color-text-primary)]">
+                    {booking.packageName}
+                  </h3>
+                  <div className="flex items-center gap-2 text-[var(--color-text-secondary)] text-sm mt-1">
+                    <MapPin className="w-4 h-4" />
+                    <span>{booking.destination}</span>
+                    <span className="mx-2">•</span>
+                    <Plane className="w-4 h-4" />
+                    <span>{booking.bookingCode}</span>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-4 mt-4">
+                  {/* Date */}
+                  <div className="flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
+                    <Calendar className="w-4 h-4 text-[var(--color-primary-blue)]" />
+                    <span>{formatDate(booking.startDate)}</span>
+                  </div>
+                  {/* Duration */}
+                  <div className="flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
+                    <Clock className="w-4 h-4 text-[var(--color-primary-blue)]" />
+                    <span>{booking.duration} days</span>
+                  </div>
+                  {/* Passengers */}
+                  <div className="flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
+                    <Users className="w-4 h-4 text-[var(--color-primary-blue)]" />
+                    <span>{booking.passengers} pax</span>
+                  </div>
                 </div>
               </div>
 
-              {/* Card Content */}
-              <div className="p-6">
-                {/* Title and Destination */}
-                <div className="mb-4">
-                  <h3 className="text-[var(--color-text-primary)] mb-2">
-                    {booking.packageName}
-                  </h3>
-                  <div className="flex items-center gap-2 text-[var(--color-text-secondary)] text-sm">
-                    <MapPin className="w-4 h-4" />
-                    <span>{booking.destination}</span>
+              {/* Status & Price */}
+              <div className="flex flex-col items-start md:items-end gap-2 min-w-[140px]">
+                <span
+                  className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border ${getStatusBadgeStyles(
+                    booking.status
+                  )}`}
+                >
+                  {booking.status}
+                </span>
+                <div className="text-right">
+                  <div className="text-sm text-[var(--color-text-secondary)]">Total</div>
+                  <div className="text-xl font-bold text-[var(--color-text-primary)]">
+                    ${booking.totalPrice.toLocaleString()}
                   </div>
                 </div>
+              </div>
 
-                {/* Booking Details Grid */}
-                <div className="grid grid-cols-2 gap-4 mb-4 pb-4 border-b border-[var(--color-border)]">
-                  {/* Start Date */}
-                  <div className="flex items-start gap-2">
-                    <Calendar className="w-4 h-4 text-[var(--color-primary-blue)] mt-0.5" />
-                    <div>
-                      <p className="text-xs text-[var(--color-text-secondary)] mb-0.5">
-                        Start Date
-                      </p>
-                      <p className="text-sm text-[var(--color-text-primary)]">
-                        {formatDate(booking.startDate)}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Duration */}
-                  <div className="flex items-start gap-2">
-                    <Clock className="w-4 h-4 text-[var(--color-primary-blue)] mt-0.5" />
-                    <div>
-                      <p className="text-xs text-[var(--color-text-secondary)] mb-0.5">
-                        Duration
-                      </p>
-                      <p className="text-sm text-[var(--color-text-primary)]">
-                        {booking.duration} {booking.duration === 1 ? 'day' : 'days'}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Passengers */}
-                  <div className="flex items-start gap-2">
-                    <Users className="w-4 h-4 text-[var(--color-primary-blue)] mt-0.5" />
-                    <div>
-                      <p className="text-xs text-[var(--color-text-secondary)] mb-0.5">
-                        Passengers
-                      </p>
-                      <p className="text-sm text-[var(--color-text-primary)]">
-                        {booking.passengers} {booking.passengers === 1 ? 'person' : 'people'}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Booking Code */}
-                  <div className="flex items-start gap-2">
-                    <Plane className="w-4 h-4 text-[var(--color-primary-blue)] mt-0.5" />
-                    <div>
-                      <p className="text-xs text-[var(--color-text-secondary)] mb-0.5">
-                        Booking Code
-                      </p>
-                      <p className="text-sm text-[var(--color-text-primary)]">
-                        {booking.bookingCode}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Price and Actions */}
-                <div className="flex items-center justify-between">
-                  {/* Price */}
-                  <div className="flex items-center gap-2">
-                    <DollarSign className="w-5 h-5 text-[var(--color-primary-blue)]" />
-                    <div>
-                      <p className="text-xs text-[var(--color-text-secondary)]">Total Price</p>
-                      <p className="text-xl text-[var(--color-text-primary)]">
-                        ${booking.totalPrice.toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Action Button */}
-                  <div>
-                    {booking.status === 'Pending Payment' ? (
-                      <button
-                        onClick={() => handlePayNow(booking.id)}
-                        className="flex items-center gap-2 px-4 py-2.5 bg-yellow-600 hover:bg-yellow-700 text-white rounded-md transition-colors"
-                      >
-                        <CreditCard className="w-4 h-4" />
-                        <span>Pay Now</span>
-                      </button>
-                    ) : booking.status === 'Cancelled' ? (
-                      <button
-                        onClick={() => handleViewItinerary(booking.id)}
-                        className="flex items-center gap-2 px-4 py-2.5 bg-[var(--color-background)] text-[var(--color-text-secondary)] rounded-md transition-colors border border-[var(--color-border)] cursor-not-allowed opacity-50"
-                        disabled
-                      >
-                        <Eye className="w-4 h-4" />
-                        <span>Cancelled</span>
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => handleViewItinerary(booking.id)}
-                        className="flex items-center gap-2 px-4 py-2.5 bg-[var(--color-primary-blue)] hover:bg-[var(--color-primary-blue-hover)] text-white rounded-md transition-colors"
-                      >
-                        <Eye className="w-4 h-4" />
-                        <span>View Details</span>
-                      </button>
-                    )}
-                  </div>
-                </div>
+              {/* Action */}
+              <div className="min-w-[120px] flex justify-end">
+                {booking.status === 'Pending Payment' ? (
+                  <button
+                    onClick={() => handlePayNow(booking.id)}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-md transition-colors text-sm font-medium shadow-sm"
+                  >
+                    <CreditCard className="w-4 h-4" />
+                    Pay Now
+                  </button>
+                ) : booking.status === 'Cancelled' ? (
+                  <button
+                    className="w-full px-4 py-2 bg-[var(--color-background)] text-[var(--color-text-secondary)] rounded-md border border-[var(--color-border)] cursor-not-allowed opacity-60 text-sm font-medium"
+                    disabled
+                  >
+                    Cancelled
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => handleViewItinerary(booking.id)}
+                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-[var(--color-primary-blue)] hover:bg-[var(--color-primary-blue-hover)] text-white rounded-md transition-colors text-sm font-medium shadow-sm"
+                  >
+                    <Eye className="w-4 h-4" />
+                    Details
+                  </button>
+                )}
               </div>
             </div>
           ))}
@@ -292,12 +205,10 @@ export function MyBookings() {
             </div>
             <div>
               <h3 className="text-[var(--color-text-primary)] mb-2">
-                No {filter === 'upcoming' ? 'Upcoming' : 'Past'} Trips
+                No Trips Found
               </h3>
               <p className="text-[var(--color-text-secondary)]">
-                {filter === 'upcoming'
-                  ? "You don't have any upcoming trips scheduled."
-                  : "You don't have any past trips in your history."}
+                You don't have any trips booked yet.
               </p>
             </div>
           </div>
