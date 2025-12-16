@@ -323,7 +323,7 @@ app.post('/api/function/:functionName', async (req, res) => {
       return res.status(500).json({
         success: false,
         error: `Function ${functionName} does not exist or parameter types don't match. Make sure you've run the stored procedures SQL file.`,
-        hint: 'Run: psql -U postgres -d viajesucab -f server/auth-procedures.sql'
+        hint: 'Run: psql -U postgres -d viajesucab -f server/create.sql'
       });
     }
 

@@ -1,9 +1,3 @@
-/**
- * Database service layer
- * All database operations go through stored procedures
- */
-
-import { type } from 'os';
 import { callProcedure, callFunction } from './api';
 
 // ==================== Authentication ====================
@@ -659,5 +653,183 @@ export async function createPackageReturningId(
     { value: huella, type: 'DECIMAL' },
     { value: userId, type: 'INTEGER' }
   ]);
-  return result[0]?.create_package_returning_id;
+  return result[0]?.create_package_returning_id || 0;
+}
+
+/**
+ * Process a payment for a package
+ * Calls procedure: process_payment(...)
+ */
+export async function processPayment(
+  userId: number,
+  packageId: number,
+  amount: number,
+  methodType: string,
+  description: string,
+  details: {
+    // Tarjeta
+    cardNumber?: string;
+    cardHolder?: string;
+    expiryDate?: string;
+    cvv?: string;
+    cardType?: string;
+    cardBankName?: string;
+    // Cheque
+    checkNumber?: string;
+    checkHolder?: string;
+    checkBank?: string;
+    checkIssueDate?: string;
+    checkAccountCode?: string;
+    // Deposito
+    depositNumber?: string;
+    depositBank?: string;
+    depositDate?: string;
+    depositReference?: string;
+    // Transferencia
+    transferNumber?: string;
+    transferTime?: string;
+    // Pago Movil
+    pmReference?: string;
+    pmTime?: string;
+    // USDt
+    usdtWallet?: string;
+    usdtDate?: string;
+    usdtTime?: string;
+    // Zelle
+    zelleConfirmation?: string;
+    zelleDate?: string;
+    zelleTime?: string;
+    // Milla
+    miles?: number;
+  }
+): Promise<void> {
+
+  const formatExpiry = (val?: string) => {
+    if (!val) return null;
+    // Basic MM/YY -> 20YY-MM-01 conversion if needed, otherwise rely on Valid Date being passed or formatted before
+    if (val.includes('/')) {
+      const parts = val.split('/');
+      if (parts.length === 2) {
+        return `20${parts[1]}-${parts[0].padStart(2, '0')}-01`;
+      }
+    }
+    return val;
+  };
+
+  const expiryParam = formatExpiry(details.expiryDate);
+
+  // Helper to safely format ISO string or null for date/time fields if needed
+  // Assuming frontend passes valid date strings or null. Strings are 'YYYY-MM-DD' or 'HH:MM' or ISO.
+  // Postgres handles standard string formats for DATE/TIMESTAMP.
+
+  await callProcedure('process_payment', [
+    { value: userId, type: 'INTEGER' },
+    { value: packageId, type: 'INTEGER' },
+    { value: amount, type: 'DECIMAL' },
+    { value: methodType, type: 'VARCHAR' },
+    { value: description, type: 'VARCHAR' },
+    // Expanded Params
+    { value: details.cardNumber || null, type: 'VARCHAR' },
+    { value: details.cardHolder || null, type: 'VARCHAR' },
+    { value: expiryParam || null, type: 'DATE' },
+    { value: details.cvv || null, type: 'VARCHAR' },
+    { value: details.cardType || null, type: 'VARCHAR' },
+    { value: details.cardBankName || null, type: 'VARCHAR' },
+    // Cheque
+    { value: details.checkNumber || null, type: 'VARCHAR' },
+    { value: details.checkHolder || null, type: 'VARCHAR' },
+    { value: details.checkBank || null, type: 'VARCHAR' },
+    { value: details.checkIssueDate || null, type: 'DATE' },
+    { value: details.checkAccountCode || null, type: 'VARCHAR' },
+    // Deposito
+    { value: details.depositNumber || null, type: 'VARCHAR' },
+    { value: details.depositBank || null, type: 'VARCHAR' },
+    { value: details.depositDate || null, type: 'DATE' },
+    { value: details.depositReference || null, type: 'VARCHAR' },
+    // Transferencia
+    { value: details.transferNumber || null, type: 'VARCHAR' },
+    { value: details.transferTime || null, type: 'TIMESTAMP' }, // or string, JS sends string '2023-...'
+    // Pago Movil
+    { value: details.pmReference || null, type: 'VARCHAR' },
+    { value: details.pmTime || null, type: 'TIMESTAMP' },
+    // USDt
+    { value: details.usdtWallet || null, type: 'VARCHAR' },
+    { value: details.usdtDate || null, type: 'DATE' },
+    { value: details.usdtTime || null, type: 'TIMESTAMP' },
+    // Zelle
+    { value: details.zelleConfirmation || null, type: 'VARCHAR' },
+    { value: details.zelleDate || null, type: 'DATE' },
+    { value: details.zelleTime || null, type: 'TIMESTAMP' },
+    // Milla
+    { value: details.miles || null, type: 'INTEGER' },
+    // Legacy/Fallback (must match signature)
+    { value: null, type: 'VARCHAR' }, // zelle_email
+    { value: null, type: 'VARCHAR' }, // zelle_phone
+    { value: null, type: 'VARCHAR' }, // cedula
+    { value: null, type: 'VARCHAR' }  // phone_number
+  ]);
+}
+
+/**
+ * Get child packages for a given parent package (itinerary)
+ * Returns child package IDs and their prices for total calculation
+ */
+export interface ChildPackage {
+  id: number;
+  name: string;
+  price: number;
+}
+
+export async function getPackageChildren(parentId: number): Promise<ChildPackage[]> {
+  // Use getPackageDetails which includes child packages marked as type 'package'
+  // The get_package_details function returns all items including child packages
+  const details = await getPackageDetails(parentId);
+
+  // Filter for child packages - these come from paq_paq table and have item_type 'package'
+  const packages = details.filter(d => String(d.item_type).toLowerCase() === 'package');
+
+  return packages.map(p => ({
+    id: p.item_id,
+    name: p.item_name,
+    price: p.costo || 0
+  }));
+}
+
+/**
+ * Get bookings for a specific user
+ * Calls function: get_user_bookings(user_id)
+ */
+export async function getUserBookings(userId: number): Promise<any[]> {
+  const result = await callFunction<any>('get_user_bookings', [
+    { value: userId, type: 'INTEGER' }
+  ]);
+  return result || [];
+}
+
+/**
+ * Add passengers to a booking
+ * Calls procedure: add_passengers_to_booking(booking_id, passengers)
+ */
+export interface PassengerData {
+  firstName: string;
+  lastName: string;
+  passportNumber: string;
+  dob: string;
+}
+
+export async function addPassengersToBooking(
+  bookingId: number,
+  passengers: PassengerData[]
+): Promise<void> {
+  // Call the stored procedure for each passenger
+  // Note: This may need to be adjusted based on your actual stored procedure signature
+  for (const passenger of passengers) {
+    await callProcedure('add_passenger_to_booking', [
+      { value: bookingId, type: 'INTEGER' },
+      passenger.firstName,
+      passenger.lastName,
+      passenger.passportNumber,
+      { value: passenger.dob, type: 'DATE' }
+    ]);
+  }
 }
