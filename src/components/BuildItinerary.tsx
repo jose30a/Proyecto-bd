@@ -127,11 +127,14 @@ export function BuildItinerary() {
             price: Number(d.costo || 0) || 0,
             details: d.inicio ? `${d.inicio}${d.fin ? ' - ' + d.fin : ''}` : '',
           }));
+          // Calculate total price from services if available
+          const calculatedPrice = (details || []).reduce((sum: number, d: any) => sum + (Number(d.costo) || 0), 0);
+
           return {
             id: pkgId,
             name: r.p_nombre_paq ?? r.name,
             description: (r.p_descripcion_paq ?? r.description) || '',
-            price: Number(r.p_millaje_paq || r.price || 0) || 0,
+            price: calculatedPrice > 0 ? calculatedPrice : (Number(r.p_millaje_paq || r.price || 0) || 0),
             duration: Number(r.p_duracion_paq || r.duration || 0) || 0,
             services: svc.length,
           } as PackageItem;
@@ -263,7 +266,7 @@ export function BuildItinerary() {
       const parentId = await createPackageReturningId(
         itineraryDetails.name,
         itineraryDetails.description,
-        'Active',
+        'Pending Payment',
         totalMileage,
         totalCost,
         0,

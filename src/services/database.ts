@@ -742,7 +742,12 @@ export async function processPayment(
     { value: details.zelleDate || null, type: 'DATE' },
     { value: details.zelleTime || null, type: 'TIMESTAMP' },
     // Milla
-    { value: details.miles || null, type: 'INTEGER' }
+    { value: details.miles || null, type: 'INTEGER' },
+    // Legacy/Fallback (must match signature)
+    { value: null, type: 'VARCHAR' }, // zelle_email
+    { value: null, type: 'VARCHAR' }, // zelle_phone
+    { value: null, type: 'VARCHAR' }, // cedula
+    { value: null, type: 'VARCHAR' }  // phone_number
   ]);
 }
 

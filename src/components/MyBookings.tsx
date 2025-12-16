@@ -100,7 +100,7 @@ export function MyBookings() {
           imageUrl: 'https://images.unsplash.com/photo-1501594907352-04cda38ebc29?w=800&q=80',
           startDate: b.startDate ? new Date(b.startDate).toISOString().split('T')[0] : (b.start_date ? new Date(b.start_date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]),
           duration: b.duration,
-          status: b.status as BookingStatus,
+          status: (b.status === 'Active' ? 'Pending Payment' : b.status) as BookingStatus,
           totalPrice: parseFloat(b.totalPrice || b.totalprice || b.total_price || 0),
           passengers: b.passengers || 1,
           bookingDate: b.bookingDate ? new Date(b.bookingDate).toISOString().split('T')[0] : (b.booking_date ? new Date(b.booking_date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]),
