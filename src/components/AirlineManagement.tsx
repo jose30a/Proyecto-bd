@@ -36,7 +36,7 @@ export function AirlineManagement() {
     name: '',
     originType: 'Internacional' as 'Nacional' | 'Internacional',
     fkLug: 0,
-    status: 'Active' as 'Active' | 'Inactive',
+    fkLug: 0,
   });
 
   const [selectedOriginCountry, setSelectedOriginCountry] = useState<number>(0); // Triggers city load
@@ -133,7 +133,7 @@ export function AirlineManagement() {
 
   const handleAddNew = () => {
     setEditingAirline(null);
-    setFormData({ name: '', originType: 'Internacional', fkLug: 0, status: 'Active' });
+    setFormData({ name: '', originType: 'Internacional', fkLug: 0 });
     setContactNumbers([{ id: 1, countryCode: '', number: '', type: 'Oficina' }]);
     setIsModalOpen(true);
   };
@@ -144,7 +144,6 @@ export function AirlineManagement() {
       name: airline.name,
       originType: airline.originType,
       fkLug: airline.fkLug || 0,
-      status: airline.status,
     });
     setContactNumbers(airline.contactNumbers || []);
     setIsModalOpen(true);
@@ -189,8 +188,7 @@ export function AirlineManagement() {
         id: editingAirline ? parseInt(editingAirline.id) : null,
         name: formData.name,
         origin_type: formData.originType,
-        fk_lug: formData.fkLug,
-        status: formData.status
+        fk_lug: formData.fkLug
       });
 
       // Reload airlines to get the newly created airline ID (if new)
@@ -292,18 +290,7 @@ export function AirlineManagement() {
               />
             </div>
 
-            {/* Status Filter */}
-            <div className="min-w-[180px]">
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
-              >
-                <option value="all">All Status</option>
-                <option value="Active">Active</option>
-                <option value="Inactive">Inactive</option>
-              </select>
-            </div>
+
           </div>
 
           {/* Add New Button */}
@@ -328,7 +315,7 @@ export function AirlineManagement() {
                 <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Origin Type</th>
                 <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Origin Location</th>
                 <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Phone Numbers</th>
-                <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Status</th>
+
                 <th className="px-6 py-4 text-left text-[var(--color-text-primary)]">Actions</th>
               </tr>
             </thead>
@@ -357,16 +344,7 @@ export function AirlineManagement() {
                         )}
                       </div>
                     </td>
-                    <td className="px-6 py-4">
-                      <span
-                        className={`inline - flex items - center px - 3 py - 1 rounded - full text - xs ${airline.status === 'Active'
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-gray-100 text-gray-700'
-                          } `}
-                      >
-                        {airline.status}
-                      </span>
-                    </td>
+
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2">
                         <button
@@ -534,20 +512,7 @@ export function AirlineManagement() {
                     )}
                   </div>
 
-                  {/* Status */}
-                  <div>
-                    <label className="block text-[var(--color-text-primary)] mb-2">
-                      Status <span className="text-red-500">*</span>
-                    </label>
-                    <select
-                      value={formData.status}
-                      onChange={(e) => setFormData({ ...formData, status: e.target.value as 'Active' | 'Inactive' })}
-                      className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
-                    >
-                      <option value="Active">Active</option>
-                      <option value="Inactive">Inactive</option>
-                    </select>
-                  </div>
+
                 </div>
               </div>
 
