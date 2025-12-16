@@ -222,9 +222,9 @@ export function TourPackages() {
     setError(null);
     // Validation
     if (!formData.name.trim()) { alert('Please enter a package name'); return; }
-    if (formData.totalCost <= 0) { alert('Please enter a valid total cost'); return; }
+    if (formData.totalCost < 0) { alert('Please enter a valid total cost'); return; }
     if (formData.capacity <= 0) { alert('Please enter a valid capacity'); return; }
-    if (formData.duration <= 0) { alert('Please enter a valid duration'); return; }
+    if (formData.duration < 0) { alert('Please enter a valid duration'); return; }
 
     try {
       if (editingPackage) {
