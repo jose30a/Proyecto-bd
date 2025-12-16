@@ -317,17 +317,24 @@ export async function getCities(countryId: number): Promise<{ cod_lug: number; n
   return callFunction<{ cod_lug: number; nombre_lug: string }[]>('get_cities', [countryId]);
 }
 
-export async function upsertAirline(airline: Partial<Airline> & { name: string; origin_type?: string; fk_lug?: number }): Promise<void> {
-  return callProcedure(
+export async function upsertAirline(airline: Partial<Airline> & { name: string; origin_type?: string; fk_lug?: number }): Promise<number> {
+  const result = await callFunction<any>(
     'upsert_airline',
     [
       airline.id ? parseInt(airline.id) : null,
       airline.name,
       airline.origin_type || 'Internacional',
       airline.fk_lug || null,
-      airline.status || 'Active',
     ]
   );
+  // Function returns pure integer (or row with column depending on driver/implementation)
+  // callFunction usually returns rows array.
+  // The function returns just an integer scalar? Postgres functions return scalar if not SETOF/TABLE.
+  // But node-postgres usually returns rows.
+  // If it returns scalar, it might be result[0].result or something.
+  // Let's assume callFunction returns rows.
+  // "SELECT upsert_airline(...)" -> returns [{ upsert_airline: 123 }]
+  return result[0]?.upsert_airline || 0;
 }
 
 /**

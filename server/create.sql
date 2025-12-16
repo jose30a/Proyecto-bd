@@ -991,18 +991,31 @@ ORDER BY l.nombre_lug;
 END;
 $$ LANGUAGE plpgsql;
 -- =============================================
--- Upsert Airline (Refactored)
--- =============================================
 DROP PROCEDURE IF EXISTS upsert_airline(INTEGER, VARCHAR, VARCHAR, VARCHAR, VARCHAR) CASCADE;
 DROP PROCEDURE IF EXISTS upsert_airline(INTEGER, VARCHAR, DATE, VARCHAR, INTEGER) CASCADE;
 DROP PROCEDURE IF EXISTS upsert_airline(TEXT, VARCHAR, VARCHAR, INTEGER, VARCHAR) CASCADE;
-CREATE OR REPLACE PROCEDURE upsert_airline(
+DROP PROCEDURE IF EXISTS upsert_airline(TEXT, VARCHAR, VARCHAR, INTEGER, VARCHAR, VARCHAR, VARCHAR, VARCHAR) CASCADE;
+DROP PROCEDURE IF EXISTS upsert_airline(TEXT, VARCHAR, VARCHAR, INTEGER) CASCADE;
+DROP PROCEDURE IF EXISTS upsert_airline(INTEGER, VARCHAR, VARCHAR, INTEGER) CASCADE;
+DROP FUNCTION IF EXISTS upsert_airline(TEXT, VARCHAR, VARCHAR, INTEGER, VARCHAR) CASCADE;
+
+CREATE OR REPLACE FUNCTION upsert_airline(
+        p_id INTEGER,
+        p_name VARCHAR,
+        p_origin_type VARCHAR,
+        p_fk_lug INTEGER
+    ) RETURNS INTEGER AS $$
+BEGIN 
+    RETURN upsert_airline(p_id::TEXT, p_name, p_origin_type, p_fk_lug);
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION upsert_airline(
         p_id TEXT,
         p_name VARCHAR,
         p_origin_type VARCHAR,
-        p_fk_lug INTEGER,
-        p_status VARCHAR
-    ) AS $$
+        p_fk_lug INTEGER
+    ) RETURNS INTEGER AS $$
 DECLARE v_id INTEGER;
 BEGIN -- Handle p_id as TEXT
 IF p_id IS NULL
@@ -1021,18 +1034,18 @@ INSERT INTO aerolinea (
 VALUES (
         p_name,
         COALESCE(p_origin_type, 'Internacional'),
-        COALESCE(p_status, 'Active'),
+        'Active',
         CURRENT_DATE,
         p_fk_lug
-    );
+    ) RETURNING cod INTO v_id;
 ELSE
 UPDATE aerolinea
 SET nombre = p_name,
     origen_aer = COALESCE(p_origin_type, origen_aer),
-    servicio_aer = COALESCE(p_status, servicio_aer),
     fk_cod_lug = COALESCE(p_fk_lug, fk_cod_lug)
 WHERE cod = v_id;
 END IF;
+RETURN v_id;
 END;
 $$ LANGUAGE plpgsql;
 DROP PROCEDURE IF EXISTS delete_airline(INTEGER) CASCADE;
