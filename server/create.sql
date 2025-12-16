@@ -713,6 +713,9 @@ WHERE cod = p_id;
 END;
 $$ LANGUAGE plpgsql;
 -- Return services, hotels and restaurants included in a package
+-- Fixed version of get_package_details function
+-- This version works with the actual schema where hotels and restaurants
+-- are linked via hot_paq and res_paq tables, not directly through servicio
 DROP FUNCTION IF EXISTS get_package_details(INTEGER) CASCADE;
 CREATE OR REPLACE FUNCTION get_package_details(p_package_id INTEGER) RETURNS TABLE (
         item_type VARCHAR,
@@ -722,90 +725,136 @@ CREATE OR REPLACE FUNCTION get_package_details(p_package_id INTEGER) RETURNS TAB
         fin DATE,
         costo DECIMAL,
         millaje INTEGER
-    ) AS $$ BEGIN -- Services from ser_paq join servicio
-    RETURN QUERY
-SELECT CASE
-        WHEN EXISTS(
-            SELECT 1
-            FROM ser_aer sa
-            WHERE sa.fk_servicio = s.cod
-        ) THEN 'Flight'
-        WHEN EXISTS(
-            SELECT 1
-            FROM ser_cru sc
-            WHERE sc.fk_servicio = s.cod
-        ) THEN 'Cruise'
-        WHEN EXISTS(
-            SELECT 1
-            FROM tur_ser st
-            WHERE st.fk_servicio = s.cod
-        ) THEN 'Tour'
-        WHEN EXISTS(
-            SELECT 1
-            FROM ser_veh sv
-            WHERE sv.fk_servicio = s.cod
-        ) THEN 'Transport'
-        ELSE 'Service'
-    END::VARCHAR AS item_type,
-    s.cod AS item_id,
-    s.nombre_ser AS item_name,
+    ) AS $$ BEGIN RETURN QUERY -- Get services from ser_paq
+SELECT 'service'::VARCHAR AS item_type,
+    sp.fk_servicio AS item_id,
+    COALESCE(s.nombre_ser, 'Unknown Service')::VARCHAR AS item_name,
     sp.inicio_ser AS inicio,
     sp.fin_ser AS fin,
-    (
-        sp.costo_ser * (
-            1 - COALESCE(
-                (
-                    SELECT MAX(p.porcen_descuento)
-                    FROM pro_ser ps
-                        JOIN promocion p ON ps.fk_promocion = p.cod
-                    WHERE ps.fk_servicio = s.cod
-                        AND sp.inicio_ser >= ps.fecha_inicio
-                        AND sp.inicio_ser <= ps.fecha_fin
-                ),
-                0
-            ) / 100
-        )
-    )::DECIMAL AS costo,
+    sp.costo_ser AS costo,
     sp.millaje_ser AS millaje
 FROM ser_paq sp
-    JOIN servicio s ON sp.fk_servicio = s.cod
+    LEFT JOIN servicio s ON sp.fk_servicio = s.cod
 WHERE sp.fk_paquete = p_package_id
 UNION ALL
--- Hotels from hot_paq join hotel
-SELECT 'hotel'::VARCHAR,
-    h.cod,
-    h.nombre_hot,
-    hp.inicio_estadia_hot,
-    hp.fin_estadia_hot,
-    hp.costo_reserva_hot::DECIMAL,
-    hp.millaje_hot
+-- Get hotels from hot_paq
+SELECT 'hotel'::VARCHAR AS item_type,
+    hp.fk_hotel AS item_id,
+    COALESCE(h.nombre_hot, 'Unknown Hotel')::VARCHAR AS item_name,
+    hp.inicio_estadia_hot AS inicio,
+    hp.fin_estadia_hot AS fin,
+    hp.costo_reserva_hot AS costo,
+    hp.millaje_hot AS millaje
 FROM hot_paq hp
-    JOIN hotel h ON hp.fk_hotel = h.cod
+    LEFT JOIN hotel h ON hp.fk_hotel = h.cod
 WHERE hp.fk_paquete = p_package_id
 UNION ALL
--- Restaurants from res_paq join restaurant
-SELECT 'restaurant'::VARCHAR,
-    r.cod,
-    r.nombre_res,
-    rp.inicio_reserva_res,
-    rp.fin_reserva_res,
-    rp.costo_reserva_res::DECIMAL,
-    rp.millaje_res
+-- Get restaurants from res_paq
+SELECT 'restaurant'::VARCHAR AS item_type,
+    rp.fk_restaurant AS item_id,
+    COALESCE(r.nombre_res, 'Unknown Restaurant')::VARCHAR AS item_name,
+    rp.inicio_reserva_res AS inicio,
+    rp.fin_reserva_res AS fin,
+    rp.costo_reserva_res AS costo,
+    rp.millaje_res AS millaje
 FROM res_paq rp
-    JOIN restaurant r ON rp.fk_restaurant = r.cod
+    LEFT JOIN restaurant r ON rp.fk_restaurant = r.cod
 WHERE rp.fk_paquete = p_package_id
 UNION ALL
--- Child Packages (Itinerary)
-SELECT 'package'::VARCHAR,
-    pt.cod,
-    pt.nombre_paq,
-    NULL::DATE,
-    NULL::DATE,
-    COALESCE(pt.costo_millas_paq, 0)::DECIMAL,
-    COALESCE(pt.millaje_paq, 0)
+-- Get child packages with their total cost
+SELECT 'package'::VARCHAR AS item_type,
+    pp.fk_paquete_hijo AS item_id,
+    pt.nombre_paq::VARCHAR AS item_name,
+    MIN(
+        LEAST(
+            (
+                SELECT MIN(sp2.inicio_ser)
+                FROM ser_paq sp2
+                WHERE sp2.fk_paquete = pt.cod
+            ),
+            (
+                SELECT MIN(hp2.inicio_estadia_hot)
+                FROM hot_paq hp2
+                WHERE hp2.fk_paquete = pt.cod
+            ),
+            (
+                SELECT MIN(rp2.inicio_reserva_res)
+                FROM res_paq rp2
+                WHERE rp2.fk_paquete = pt.cod
+            )
+        )
+    ) AS inicio,
+    MAX(
+        GREATEST(
+            (
+                SELECT MAX(sp2.fin_ser)
+                FROM ser_paq sp2
+                WHERE sp2.fk_paquete = pt.cod
+            ),
+            (
+                SELECT MAX(hp2.fin_estadia_hot)
+                FROM hot_paq hp2
+                WHERE hp2.fk_paquete = pt.cod
+            ),
+            (
+                SELECT MAX(rp2.fin_reserva_res)
+                FROM res_paq rp2
+                WHERE rp2.fk_paquete = pt.cod
+            )
+        )
+    ) AS fin,
+    COALESCE(
+        (
+            SELECT SUM(sp2.costo_ser)
+            FROM ser_paq sp2
+            WHERE sp2.fk_paquete = pt.cod
+        ),
+        0
+    ) + COALESCE(
+        (
+            SELECT SUM(hp2.costo_reserva_hot)
+            FROM hot_paq hp2
+            WHERE hp2.fk_paquete = pt.cod
+        ),
+        0
+    ) + COALESCE(
+        (
+            SELECT SUM(rp2.costo_reserva_res)
+            FROM res_paq rp2
+            WHERE rp2.fk_paquete = pt.cod
+        ),
+        0
+    ) AS costo,
+    (
+        COALESCE(
+            (
+                SELECT SUM(sp2.millaje_ser)
+                FROM ser_paq sp2
+                WHERE sp2.fk_paquete = pt.cod
+            ),
+            0
+        ) + COALESCE(
+            (
+                SELECT SUM(hp2.millaje_hot)
+                FROM hot_paq hp2
+                WHERE hp2.fk_paquete = pt.cod
+            ),
+            0
+        ) + COALESCE(
+            (
+                SELECT SUM(rp2.millaje_res)
+                FROM res_paq rp2
+                WHERE rp2.fk_paquete = pt.cod
+            ),
+            0
+        )
+    )::INTEGER AS millaje
 FROM paq_paq pp
     JOIN paquete_turistico pt ON pp.fk_paquete_hijo = pt.cod
-WHERE pp.fk_paquete_padre = p_package_id;
+WHERE pp.fk_paquete_padre = p_package_id
+GROUP BY pp.fk_paquete_hijo,
+    pt.nombre_paq,
+    pt.cod;
 END;
 $$ LANGUAGE plpgsql;
 -- =============================================
@@ -824,19 +873,39 @@ FROM promocion
 ORDER BY cod;
 END;
 $$ LANGUAGE plpgsql;
-DROP PROCEDURE IF EXISTS upsert_promotion(INTEGER, VARCHAR) CASCADE;
+-- Create upsert_promotion with signature (TEXT, TEXT, INTEGER) to match backend call
+-- Params: p_id (TEXT), p_tipo (TEXT), p_discount (INTEGER)
+DROP PROCEDURE IF EXISTS upsert_promotion(INTEGER, VARCHAR, DECIMAL) CASCADE;
+DROP PROCEDURE IF EXISTS upsert_promotion(TEXT, TEXT, TEXT) CASCADE;
+DROP PROCEDURE IF EXISTS upsert_promotion(TEXT, TEXT, DECIMAL) CASCADE;
+DROP PROCEDURE IF EXISTS upsert_promotion(TEXT, TEXT, INTEGER) CASCADE;
 CREATE OR REPLACE PROCEDURE upsert_promotion(
-        p_id INTEGER,
-        p_tipo VARCHAR,
-        p_porcen_descuento DECIMAL
-    ) AS $$ BEGIN IF p_id IS NULL THEN
-INSERT INTO promocion (tipo_pro, porcen_descuento)
-VALUES (p_tipo, COALESCE(p_porcen_descuento, 0));
-ELSE
+        p_id TEXT,
+        p_tipo TEXT,
+        p_discount INTEGER
+    ) AS $$
+DECLARE v_id INTEGER;
+BEGIN -- Convert TEXT to INTEGER for ID (handle NULL)
+IF p_id IS NULL
+OR p_id = ''
+OR p_id = 'null' THEN v_id := NULL;
+ELSE v_id := p_id::INTEGER;
+END IF;
+-- p_discount is already INTEGER, usable for DECIMAL column usually implies implicit cast or explicit cast
+IF v_id IS NULL THEN -- Insert new promotion
+INSERT INTO promocion (
+        tipo_pro,
+        porcen_descuento
+    )
+VALUES (
+        p_tipo,
+        p_discount::DECIMAL
+    );
+ELSE -- Update existing promotion
 UPDATE promocion
 SET tipo_pro = p_tipo,
-    porcen_descuento = COALESCE(p_porcen_descuento, porcen_descuento)
-WHERE cod = p_id;
+    porcen_descuento = p_discount::DECIMAL
+WHERE cod = v_id;
 END IF;
 END;
 $$ LANGUAGE plpgsql;
@@ -926,15 +995,22 @@ $$ LANGUAGE plpgsql;
 -- =============================================
 DROP PROCEDURE IF EXISTS upsert_airline(INTEGER, VARCHAR, VARCHAR, VARCHAR, VARCHAR) CASCADE;
 DROP PROCEDURE IF EXISTS upsert_airline(INTEGER, VARCHAR, DATE, VARCHAR, INTEGER) CASCADE;
+DROP PROCEDURE IF EXISTS upsert_airline(TEXT, VARCHAR, VARCHAR, INTEGER, VARCHAR) CASCADE;
 CREATE OR REPLACE PROCEDURE upsert_airline(
-        p_id INTEGER,
+        p_id TEXT,
         p_name VARCHAR,
         p_origin_type VARCHAR,
-        -- 'Nacional' or 'Internacional'
         p_fk_lug INTEGER,
-        -- Location ID (Country)
         p_status VARCHAR
-    ) AS $$ BEGIN IF p_id IS NULL THEN
+    ) AS $$
+DECLARE v_id INTEGER;
+BEGIN -- Handle p_id as TEXT
+IF p_id IS NULL
+OR p_id = ''
+OR p_id = 'null' THEN v_id := NULL;
+ELSE v_id := p_id::INTEGER;
+END IF;
+IF v_id IS NULL THEN
 INSERT INTO aerolinea (
         nombre,
         origen_aer,
@@ -955,7 +1031,7 @@ SET nombre = p_name,
     origen_aer = COALESCE(p_origin_type, origen_aer),
     servicio_aer = COALESCE(p_status, servicio_aer),
     fk_cod_lug = COALESCE(p_fk_lug, fk_cod_lug)
-WHERE cod = p_id;
+WHERE cod = v_id;
 END IF;
 END;
 $$ LANGUAGE plpgsql;
@@ -2158,9 +2234,7 @@ $$;
 -- =============================================
 -- Procedure to process a payment
 -- Removed duplicate process_payment
-
 -- Function to get user bookings
-
 -- Function to create package returning ID
 CREATE OR REPLACE FUNCTION create_package_returning_id(
         p_name VARCHAR,
@@ -2411,12 +2485,7 @@ END;
 $$ LANGUAGE plpgsql;
 -- 3. Get User Bookings: Removed (See updated definition below)
 -- UPDATED get_user_bookings for Phase 5 (Composition & Price)
-
-
 -- FINAL UPDATE get_user_bookings for Phase 5 (Composition & Price & BookingDate)
-
-
-
 -- FINAL DEFINITION: get_user_bookings
 CREATE OR REPLACE FUNCTION get_user_bookings(p_user_id INTEGER) RETURNS TABLE (
         id INTEGER,
@@ -2430,8 +2499,7 @@ CREATE OR REPLACE FUNCTION get_user_bookings(p_user_id INTEGER) RETURNS TABLE (
         composition VARCHAR,
         bookingDate TIMESTAMP
     ) AS $$ BEGIN RETURN QUERY
-SELECT 
-    p.cod AS id,
+SELECT p.cod AS id,
     p.nombre_paq AS packageName,
     'Destino Variable'::VARCHAR AS destination,
     MIN(sp.inicio_ser) AS startDate,
@@ -2439,29 +2507,39 @@ SELECT
     COUNT(DISTINCT sp.nombre_pasajero)::INTEGER AS passengers,
     p.estado_paq AS status,
     (
-            COALESCE(SUM(sp.costo_ser), 0) + 
-            COALESCE((
+        COALESCE(SUM(sp.costo_ser), 0) + COALESCE(
+            (
                 SELECT SUM(child_sp.costo_ser)
                 FROM paq_paq pp
-                JOIN ser_paq child_sp ON pp.fk_paquete_hijo = child_sp.fk_paquete
+                    JOIN ser_paq child_sp ON pp.fk_paquete_hijo = child_sp.fk_paquete
                 WHERE pp.fk_paquete_padre = p.cod
-            ), 0)
+            ),
+            0
+        )
     )::DECIMAL AS totalPrice,
     COALESCE(
         (
-          SELECT STRING_AGG(p_child.nombre_paq || ' ($' || COALESCE(
-              (SELECT SUM(s_c.costo_ser) FROM ser_paq s_c WHERE s_c.fk_paquete = p_child.cod), 0
-          ) || ')', ', ')
-          FROM paq_paq pp_c
-          JOIN paquete_turistico p_child ON pp_c.fk_paquete_hijo = p_child.cod
-          WHERE pp_c.fk_paquete_padre = p.cod
-        ), 
+            SELECT STRING_AGG(
+                    p_child.nombre_paq || ' ($' || COALESCE(
+                        (
+                            SELECT SUM(s_c.costo_ser)
+                            FROM ser_paq s_c
+                            WHERE s_c.fk_paquete = p_child.cod
+                        ),
+                        0
+                    ) || ')',
+                    ', '
+                )
+            FROM paq_paq pp_c
+                JOIN paquete_turistico p_child ON pp_c.fk_paquete_hijo = p_child.cod
+            WHERE pp_c.fk_paquete_padre = p.cod
+        ),
         'Direct Booking'
     )::VARCHAR AS composition,
     MAX(pa.fecha_pago)::TIMESTAMP AS bookingDate
 FROM paquete_turistico p
-LEFT JOIN ser_paq sp ON p.cod = sp.fk_paquete
-LEFT JOIN pago pa ON p.cod = pa.fk_cod_paquete
+    LEFT JOIN ser_paq sp ON p.cod = sp.fk_paquete
+    LEFT JOIN pago pa ON p.cod = pa.fk_cod_paquete
 WHERE p.fk_cod_usuario = p_user_id
 GROUP BY p.cod;
 END;
