@@ -1194,23 +1194,24 @@ VALUES ('Summer Sale', 15),
     ('Family Pack', 18),
     ('Student Disc', 15),
     ('Honeymoon Special', 22);
-INSERT INTO pro_ser (
-        fk_promocion,
-        fk_servicio,
-        fecha_inicio,
-        fecha_fin
-    )
-SELECT p.cod,
-    s.cod,
-    '2024-01-01',
-    '2024-12-31'
+-- Replaced raw insert with iterative calls to ensure price updates trigger
+DO $$
+DECLARE r RECORD;
+BEGIN FOR r IN
+SELECT p.cod as promo_id,
+    s.cod as service_id
 FROM promocion p
     CROSS JOIN LATERAL (
         SELECT cod
         FROM servicio
         ORDER BY random()
         LIMIT 2
-    ) s;
+    ) s LOOP -- Call the procedure to assign promotion AND update package prices
+    CALL assign_promotion_to_service(
+        r.promo_id, r.service_id, '2024-01-01'::DATE, '2024-12-31'::DATE
+    );
+END LOOP;
+END $$;
 INSERT INTO preferencia (descripcion_pre)
 VALUES ('Ventana'),
     ('Pasillo'),

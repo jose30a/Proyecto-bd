@@ -731,10 +731,19 @@ SELECT 'service'::VARCHAR AS item_type,
     COALESCE(s.nombre_ser, 'Unknown Service')::VARCHAR AS item_name,
     sp.inicio_ser AS inicio,
     sp.fin_ser AS fin,
-    sp.costo_ser AS costo,
+    -- Dynamic Price Calculation: Apply discount if active promotion exists
+    CASE
+        WHEN p.porcen_descuento IS NOT NULL THEN sp.costo_ser * (1 - (p.porcen_descuento / 100))
+        ELSE sp.costo_ser
+    END AS costo,
     sp.millaje_ser AS millaje
 FROM ser_paq sp
-    LEFT JOIN servicio s ON sp.fk_servicio = s.cod
+    LEFT JOIN servicio s ON sp.fk_servicio = s.cod -- Join with promotions to check for active discounts
+    LEFT JOIN pro_ser ps ON s.cod = ps.fk_servicio
+    AND sp.inicio_ser >= ps.fecha_inicio
+    AND sp.fin_ser <= ps.fecha_fin
+    LEFT JOIN promocion p ON ps.fk_promocion = p.cod
+    AND p.porcen_descuento > 0
 WHERE sp.fk_paquete = p_package_id
 UNION ALL
 -- Get hotels from hot_paq
@@ -1356,6 +1365,19 @@ END IF;
 -- Default Logic for Cost/Mileage (Business Logic)
 v_cost := 100 + floor(random() * 400);
 v_millaje := 100;
+-- Check for active promotion and apply discount
+DECLARE v_discount DECIMAL;
+BEGIN
+SELECT p.porcen_descuento INTO v_discount
+FROM promocion p
+    JOIN pro_ser ps ON p.cod = ps.fk_promocion
+WHERE ps.fk_servicio = p_item_id
+    AND p_start_date >= ps.fecha_inicio
+    AND p_start_date <= ps.fecha_fin
+LIMIT 1;
+IF v_discount IS NOT NULL THEN v_cost := v_cost * (1 - (v_discount / 100));
+END IF;
+END;
 -- Flat mileage reward
 INSERT INTO ser_paq (
         fk_servicio,
@@ -2180,7 +2202,7 @@ CREATE OR REPLACE PROCEDURE assign_promotion_to_service(
         FROM pro_ser
         WHERE fk_promocion = p_promotion_id
             AND fk_servicio = p_service_id
-    ) THEN
+    ) THEN -- Update dates if it exists
 UPDATE pro_ser
 SET fecha_inicio = p_start_date,
     fecha_fin = p_end_date
