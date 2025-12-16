@@ -857,17 +857,27 @@ CREATE OR REPLACE FUNCTION get_all_airlines() RETURNS TABLE (
         p_cod INTEGER,
         p_nombre VARCHAR,
         p_origen_aer VARCHAR,
+        -- 'Nacional' or 'Internacional'
         p_fk_cod_lug INTEGER,
-        p_lugar_nombre VARCHAR
+        p_fk_lug_padre INTEGER,
+        -- To help frontend identify country context
+        p_lugar_nombre VARCHAR,
+        p_servicio_aer VARCHAR
     ) AS $$ BEGIN RETURN QUERY
 SELECT a.cod,
     a.nombre,
     a.origen_aer,
     a.fk_cod_lug,
-    l.nombre_lug
+    l.fk_cod_lug_padre,
+    CASE
+        WHEN p.nombre_lug IS NOT NULL THEN (p.nombre_lug || ', ' || l.nombre_lug)::VARCHAR
+        ELSE l.nombre_lug
+    END as nombre_lug,
+    a.servicio_aer
 FROM aerolinea a
     LEFT JOIN lugar l ON a.fk_cod_lug = l.cod_lug
-ORDER BY a.cod;
+    LEFT JOIN lugar p ON l.fk_cod_lug_padre = p.cod_lug
+ORDER BY a.nombre;
 END;
 $$ LANGUAGE plpgsql;
 DROP FUNCTION IF EXISTS get_airline_contacts(INTEGER) CASCADE;
@@ -886,36 +896,65 @@ WHERE fk_cod_aer = p_airline_id
 ORDER BY cod;
 END;
 $$ LANGUAGE plpgsql;
+-- =============================================
+-- Helper: Get Countries and Cities
+-- =============================================
+CREATE OR REPLACE FUNCTION get_countries() RETURNS TABLE (
+        cod_lug INTEGER,
+        nombre_lug VARCHAR
+    ) AS $$ BEGIN RETURN QUERY
+SELECT l.cod_lug,
+    l.nombre_lug
+FROM lugar l
+WHERE l.tipo_lug = 'Pais'
+ORDER BY l.nombre_lug;
+END;
+$$ LANGUAGE plpgsql;
+CREATE OR REPLACE FUNCTION get_cities(p_country_id INTEGER) RETURNS TABLE (
+        cod_lug INTEGER,
+        nombre_lug VARCHAR
+    ) AS $$ BEGIN RETURN QUERY
+SELECT l.cod_lug,
+    l.nombre_lug
+FROM lugar l
+WHERE l.fk_cod_lug_padre = p_country_id
+ORDER BY l.nombre_lug;
+END;
+$$ LANGUAGE plpgsql;
+-- =============================================
+-- Upsert Airline (Refactored)
+-- =============================================
+DROP PROCEDURE IF EXISTS upsert_airline(INTEGER, VARCHAR, VARCHAR, VARCHAR, VARCHAR) CASCADE;
 DROP PROCEDURE IF EXISTS upsert_airline(INTEGER, VARCHAR, DATE, VARCHAR, INTEGER) CASCADE;
 CREATE OR REPLACE PROCEDURE upsert_airline(
         p_id INTEGER,
         p_name VARCHAR,
-        p_f_inicio DATE,
-        p_servicio VARCHAR,
-        p_origen VARCHAR,
-        p_fk_cod_lug INTEGER DEFAULT NULL
+        p_origin_type VARCHAR,
+        -- 'Nacional' or 'Internacional'
+        p_fk_lug INTEGER,
+        -- Location ID (Country)
+        p_status VARCHAR
     ) AS $$ BEGIN IF p_id IS NULL THEN
 INSERT INTO aerolinea (
         nombre,
-        f_inicio_servicio_prov,
-        servicio_aer,
         origen_aer,
+        servicio_aer,
+        f_inicio_servicio_prov,
         fk_cod_lug
     )
 VALUES (
         p_name,
-        p_f_inicio,
-        p_servicio,
-        p_origen,
-        p_fk_cod_lug
+        COALESCE(p_origin_type, 'Internacional'),
+        COALESCE(p_status, 'Active'),
+        CURRENT_DATE,
+        p_fk_lug
     );
 ELSE
 UPDATE aerolinea
 SET nombre = p_name,
-    f_inicio_servicio_prov = p_f_inicio,
-    servicio_aer = p_servicio,
-    origen_aer = p_origen,
-    fk_cod_lug = p_fk_cod_lug
+    origen_aer = COALESCE(p_origin_type, origen_aer),
+    servicio_aer = COALESCE(p_status, servicio_aer),
+    fk_cod_lug = COALESCE(p_fk_lug, fk_cod_lug)
 WHERE cod = p_id;
 END IF;
 END;

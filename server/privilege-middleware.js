@@ -54,8 +54,7 @@ async function checkProcedurePrivilege(procedureName, params, userId, pool) {
         // System Administration
         'assign_privilege_to_role': 'manage_roles',
         'remove_privilege_from_role': 'manage_roles',
-        'upsert_airline': 'manage_settings', // Assuming airline mgmt is sensitive
-        'delete_airline': 'manage_settings',
+        // 'upsert_airline' and 'delete_airline' are already defined above with specific privileges
     };
 
     const requiredPrivilege = privilegeMap[procedureName];

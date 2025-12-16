@@ -281,7 +281,7 @@ VALUES (
         (
             SELECT cod_lug
             FROM lugar
-            WHERE nombre_lug = 'Venezuela'
+            WHERE nombre_lug = 'Distrito Capital'
         )
     ),
     (
@@ -325,7 +325,7 @@ VALUES (
         (
             SELECT cod_lug
             FROM lugar
-            WHERE nombre_lug = 'Asia'
+            WHERE nombre_lug = 'India'
         )
     ),
     (
@@ -336,7 +336,7 @@ VALUES (
         (
             SELECT cod_lug
             FROM lugar
-            WHERE nombre_lug = 'Asia'
+            WHERE nombre_lug = 'Tailandia'
         )
     ),
     (
@@ -347,7 +347,7 @@ VALUES (
         (
             SELECT cod_lug
             FROM lugar
-            WHERE nombre_lug = 'America'
+            WHERE nombre_lug = 'España'
         )
     );
 -- Cruceros
