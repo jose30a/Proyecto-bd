@@ -144,7 +144,6 @@ export function AirlineManagement() {
       name: airline.name,
       originType: airline.originType,
       fkLug: airline.fkLug || 0,
-
     });
     setContactNumbers(airline.contactNumbers || []);
     setIsModalOpen(true);
@@ -190,8 +189,7 @@ export function AirlineManagement() {
         id: editingAirline ? editingAirline.id : undefined,
         name: formData.name,
         origin_type: formData.originType,
-        fk_lug: formData.fkLug,
-
+        fk_lug: formData.fkLug
       });
 
       const airlineId = String(newId);
