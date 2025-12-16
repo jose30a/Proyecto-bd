@@ -640,5 +640,141 @@ export async function createPackageReturningId(
     { value: huella, type: 'DECIMAL' },
     { value: userId, type: 'INTEGER' }
   ]);
-  return result[0]?.create_package_returning_id;
+  return result[0]?.create_package_returning_id || 0;
+}
+
+/**
+ * Process a payment for a package
+ * Calls procedure: process_payment(...)
+ */
+export async function processPayment(
+  userId: number,
+  packageId: number,
+  amount: number,
+  methodType: string,
+  description: string,
+  details: {
+    // Tarjeta
+    cardNumber?: string;
+    cardHolder?: string;
+    expiryDate?: string;
+    cvv?: string;
+    cardType?: string;
+    cardBankName?: string;
+    // Cheque
+    checkNumber?: string;
+    checkHolder?: string;
+    checkBank?: string;
+    checkIssueDate?: string;
+    checkAccountCode?: string;
+    // Deposito
+    depositNumber?: string;
+    depositBank?: string;
+    depositDate?: string;
+    depositReference?: string;
+    // Transferencia
+    transferNumber?: string;
+    transferTime?: string;
+    // Pago Movil
+    pmReference?: string;
+    pmTime?: string;
+    // USDt
+    usdtWallet?: string;
+    usdtDate?: string;
+    usdtTime?: string;
+    // Zelle
+    zelleConfirmation?: string;
+    zelleDate?: string;
+    zelleTime?: string;
+    // Legacy / Fallback
+    zelleEmail?: string;
+    zellePhone?: string;
+    referenceNumber?: string;
+    bankName?: string;
+    cedula?: string;
+    phoneNumber?: string;
+    walletAddress?: string;
+  }
+): Promise<void> {
+
+  const formatExpiry = (val?: string) => {
+    if (!val) return null;
+    // Basic MM/YY -> 20YY-MM-01 conversion if needed, otherwise rely on Valid Date being passed or formatted before
+    if (val.includes('/')) {
+      const parts = val.split('/');
+      if (parts.length === 2) {
+        return `20${parts[1]}-${parts[0].padStart(2, '0')}-01`;
+      }
+    }
+    return val;
+  };
+
+  const expiryParam = formatExpiry(details.expiryDate);
+
+  // Helper to safely format ISO string or null for date/time fields if needed
+  // Assuming frontend passes valid date strings or null. Strings are 'YYYY-MM-DD' or 'HH:MM' or ISO.
+  // Postgres handles standard string formats for DATE/TIMESTAMP.
+
+  await callProcedure('process_payment', [
+    { value: userId, type: 'INTEGER' },
+    { value: packageId, type: 'INTEGER' },
+    { value: amount, type: 'DECIMAL' },
+    { value: methodType, type: 'VARCHAR' },
+    { value: description, type: 'VARCHAR' },
+    // Expanded Params
+    { value: details.cardNumber || null, type: 'VARCHAR' },
+    { value: details.cardHolder || null, type: 'VARCHAR' },
+    { value: expiryParam || null, type: 'DATE' },
+    { value: details.cvv || null, type: 'VARCHAR' },
+    { value: details.cardType || null, type: 'VARCHAR' },
+    { value: details.cardBankName || null, type: 'VARCHAR' },
+    // Cheque
+    { value: details.checkNumber || null, type: 'VARCHAR' },
+    { value: details.checkHolder || null, type: 'VARCHAR' },
+    { value: details.checkBank || null, type: 'VARCHAR' },
+    { value: details.checkIssueDate || null, type: 'DATE' },
+    { value: details.checkAccountCode || null, type: 'VARCHAR' },
+    // Deposito
+    { value: details.depositNumber || null, type: 'VARCHAR' },
+    { value: details.depositBank || null, type: 'VARCHAR' },
+    { value: details.depositDate || null, type: 'DATE' },
+    { value: details.depositReference || null, type: 'VARCHAR' },
+    // Transferencia
+    { value: details.transferNumber || null, type: 'VARCHAR' },
+    { value: details.transferTime || null, type: 'TIMESTAMP' }, // or string, JS sends string '2023-...'
+    // Pago Movil
+    { value: details.pmReference || null, type: 'VARCHAR' },
+    { value: details.pmTime || null, type: 'TIMESTAMP' },
+    // USDt
+    { value: details.usdtWallet || null, type: 'VARCHAR' },
+    { value: details.usdtDate || null, type: 'DATE' },
+    { value: details.usdtTime || null, type: 'TIMESTAMP' }, /* Backend expects TIMESTAMP for time param? Or combine? Logic checks... */
+    /* Backend procedure: p_usdt_time TIMESTAMP DEFAULT NULL. Frontend sends time string? 
+       If frontend sends '14:30', Postgres cast to timestamp might default to today+time or error. 
+       Safest is to send full timestamp or let Postgres try. 
+       Wait, the backend logic: (p_usdt_date + (p_usdt_time::time)) implies strict time cast.
+       Ideally pass 'HH:MM:SS' string.
+    */
+    // Zelle
+    { value: details.zelleConfirmation || null, type: 'VARCHAR' },
+    { value: details.zelleDate || null, type: 'DATE' },
+    { value: details.zelleTime || null, type: 'TIMESTAMP' },
+
+    // Fallbacks
+    { value: details.zelleEmail || null, type: 'VARCHAR' },
+    { value: details.zellePhone || null, type: 'VARCHAR' },
+    { value: details.cedula || null, type: 'VARCHAR' },
+    { value: details.phoneNumber || null, type: 'VARCHAR' }
+  ]);
+}
+
+/**
+ * Get bookings for a specific user
+ * Calls function: get_user_bookings(user_id)
+ */
+export async function getUserBookings(userId: number): Promise<any[]> {
+  const result = await callFunction<any>('get_user_bookings', [
+    { value: userId, type: 'INTEGER' }
+  ]);
+  return result || [];
 }

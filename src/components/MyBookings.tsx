@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Calendar, Clock, DollarSign, Eye, CreditCard, MapPin, Users, Plane } from 'lucide-react';
 import { ImageWithFallback } from './figma/ImageWithFallback';
+import { getUserBookings, getCurrentUser } from '../services/database';
 
 type BookingStatus = 'Confirmed' | 'Pending Payment' | 'Cancelled';
 
@@ -21,87 +22,42 @@ interface Booking {
 export function MyBookings() {
   const [filter, setFilter] = useState<'upcoming' | 'past'>('upcoming');
 
-  // Mock bookings data
-  const bookings: Booking[] = [
-    {
-      id: 1,
-      packageName: 'Canaima Adventure',
-      destination: 'Canaima, Venezuela',
-      imageUrl: 'https://images.unsplash.com/photo-1501594907352-04cda38ebc29?w=800&q=80',
-      startDate: '2025-02-15',
-      duration: 7,
-      status: 'Confirmed',
-      totalPrice: 2850,
-      passengers: 2,
-      bookingDate: '2024-12-01',
-      bookingCode: 'BK-2025-001',
-    },
-    {
-      id: 2,
-      packageName: 'Los Roques Paradise',
-      destination: 'Los Roques, Venezuela',
-      imageUrl: 'https://images.unsplash.com/photo-1559827260-dc66d52bef19?w=800&q=80',
-      startDate: '2025-03-10',
-      duration: 5,
-      status: 'Pending Payment',
-      totalPrice: 1950,
-      passengers: 2,
-      bookingDate: '2024-12-05',
-      bookingCode: 'BK-2025-002',
-    },
-    {
-      id: 3,
-      packageName: 'Mérida Mountain Escape',
-      destination: 'Mérida, Venezuela',
-      imageUrl: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800&q=80',
-      startDate: '2025-04-20',
-      duration: 4,
-      status: 'Confirmed',
-      totalPrice: 1200,
-      passengers: 1,
-      bookingDate: '2024-12-08',
-      bookingCode: 'BK-2025-003',
-    },
-    {
-      id: 4,
-      packageName: 'Caribbean Grand Tour',
-      destination: 'Multiple Destinations',
-      imageUrl: 'https://images.unsplash.com/photo-1540202404-a2f29016b523?w=800&q=80',
-      startDate: '2024-11-15',
-      duration: 14,
-      status: 'Confirmed',
-      totalPrice: 4500,
-      passengers: 3,
-      bookingDate: '2024-10-01',
-      bookingCode: 'BK-2024-045',
-    },
-    {
-      id: 5,
-      packageName: 'Margarita Island Retreat',
-      destination: 'Margarita Island, Venezuela',
-      imageUrl: 'https://images.unsplash.com/photo-1473496169904-658ba7c44d8a?w=800&q=80',
-      startDate: '2024-10-05',
-      duration: 6,
-      status: 'Confirmed',
-      totalPrice: 1800,
-      passengers: 2,
-      bookingDate: '2024-09-10',
-      bookingCode: 'BK-2024-032',
-    },
-    {
-      id: 6,
-      packageName: 'Amazon Expedition',
-      destination: 'Amazonas, Venezuela',
-      imageUrl: 'https://images.unsplash.com/photo-1516026672322-bc52d61a55d5?w=800&q=80',
-      startDate: '2024-09-20',
-      duration: 8,
-      status: 'Cancelled',
-      totalPrice: 3200,
-      passengers: 2,
-      bookingDate: '2024-08-15',
-      bookingCode: 'BK-2024-028',
-    },
-  ];
+
+
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadBookings();
+  }, []);
+
+  const loadBookings = async () => {
+    try {
+      const user = await getCurrentUser();
+      if (user?.cod) {
+        const data = await getUserBookings(user.cod);
+        // Map backend data to frontend Booking interface
+        const mappedBookings: Booking[] = data.map((b: any) => ({
+          id: b.id,
+          packageName: b.package_name,
+          destination: 'Destino Variable', // Backend doesn't give destination yet, or strictly linked. Using placeholder.
+          imageUrl: 'https://images.unsplash.com/photo-1501594907352-04cda38ebc29?w=800&q=80', // Placeholder image
+          startDate: new Date(b.start_date).toISOString().split('T')[0],
+          duration: b.duration,
+          status: b.status as BookingStatus,
+          totalPrice: parseFloat(b.total_price),
+          passengers: 1, // Placeholder, need detailed passenger count query
+          bookingDate: new Date(b.booking_date).toISOString().split('T')[0],
+          bookingCode: `BK-2025-${b.id.toString().padStart(3, '0')}`,
+        }));
+        setBookings(mappedBookings);
+      }
+    } catch (error) {
+      console.error('Failed to load bookings:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Filter bookings based on selected filter
   const today = new Date();
@@ -130,10 +86,10 @@ export function MyBookings() {
 
   const formatDate = (dateString: string): string => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { 
-      month: 'short', 
-      day: 'numeric', 
-      year: 'numeric' 
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric'
     });
   };
 
@@ -161,21 +117,19 @@ export function MyBookings() {
       <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg p-2 mb-6 inline-flex gap-2">
         <button
           onClick={() => setFilter('upcoming')}
-          className={`px-6 py-2.5 rounded-md transition-all ${
-            filter === 'upcoming'
-              ? 'bg-[var(--color-primary-blue)] text-white'
-              : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-background)]'
-          }`}
+          className={`px-6 py-2.5 rounded-md transition-all ${filter === 'upcoming'
+            ? 'bg-[var(--color-primary-blue)] text-white'
+            : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-background)]'
+            }`}
         >
           Upcoming Trips
         </button>
         <button
           onClick={() => setFilter('past')}
-          className={`px-6 py-2.5 rounded-md transition-all ${
-            filter === 'past'
-              ? 'bg-[var(--color-primary-blue)] text-white'
-              : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-background)]'
-          }`}
+          className={`px-6 py-2.5 rounded-md transition-all ${filter === 'past'
+            ? 'bg-[var(--color-primary-blue)] text-white'
+            : 'text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-background)]'
+            }`}
         >
           Past History
         </button>
