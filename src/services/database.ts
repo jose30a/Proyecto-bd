@@ -1,9 +1,3 @@
-/**
- * Database service layer
- * All database operations go through stored procedures
- */
-
-import { type } from 'os';
 import { callProcedure, callFunction } from './api';
 
 // ==================== Authentication ====================
@@ -686,14 +680,8 @@ export async function processPayment(
     zelleConfirmation?: string;
     zelleDate?: string;
     zelleTime?: string;
-    // Legacy / Fallback
-    zelleEmail?: string;
-    zellePhone?: string;
-    referenceNumber?: string;
-    bankName?: string;
-    cedula?: string;
-    phoneNumber?: string;
-    walletAddress?: string;
+    // Milla
+    miles?: number;
   }
 ): Promise<void> {
 
@@ -748,24 +736,39 @@ export async function processPayment(
     // USDt
     { value: details.usdtWallet || null, type: 'VARCHAR' },
     { value: details.usdtDate || null, type: 'DATE' },
-    { value: details.usdtTime || null, type: 'TIMESTAMP' }, /* Backend expects TIMESTAMP for time param? Or combine? Logic checks... */
-    /* Backend procedure: p_usdt_time TIMESTAMP DEFAULT NULL. Frontend sends time string? 
-       If frontend sends '14:30', Postgres cast to timestamp might default to today+time or error. 
-       Safest is to send full timestamp or let Postgres try. 
-       Wait, the backend logic: (p_usdt_date + (p_usdt_time::time)) implies strict time cast.
-       Ideally pass 'HH:MM:SS' string.
-    */
+    { value: details.usdtTime || null, type: 'TIMESTAMP' },
     // Zelle
     { value: details.zelleConfirmation || null, type: 'VARCHAR' },
     { value: details.zelleDate || null, type: 'DATE' },
     { value: details.zelleTime || null, type: 'TIMESTAMP' },
-
-    // Fallbacks
-    { value: details.zelleEmail || null, type: 'VARCHAR' },
-    { value: details.zellePhone || null, type: 'VARCHAR' },
-    { value: details.cedula || null, type: 'VARCHAR' },
-    { value: details.phoneNumber || null, type: 'VARCHAR' }
+    // Milla
+    { value: details.miles || null, type: 'INTEGER' }
   ]);
+}
+
+/**
+ * Get child packages for a given parent package (itinerary)
+ * Returns child package IDs and their prices for total calculation
+ */
+export interface ChildPackage {
+  id: number;
+  name: string;
+  price: number;
+}
+
+export async function getPackageChildren(parentId: number): Promise<ChildPackage[]> {
+  // Use getPackageDetails which includes child packages marked as type 'package'
+  // The get_package_details function returns all items including child packages
+  const details = await getPackageDetails(parentId);
+
+  // Filter for child packages - these come from paq_paq table and have item_type 'package'
+  const packages = details.filter(d => String(d.item_type).toLowerCase() === 'package');
+
+  return packages.map(p => ({
+    id: p.item_id,
+    name: p.item_name,
+    price: p.costo || 0
+  }));
 }
 
 /**
@@ -777,4 +780,32 @@ export async function getUserBookings(userId: number): Promise<any[]> {
     { value: userId, type: 'INTEGER' }
   ]);
   return result || [];
+}
+
+/**
+ * Add passengers to a booking
+ * Calls procedure: add_passengers_to_booking(booking_id, passengers)
+ */
+export interface PassengerData {
+  firstName: string;
+  lastName: string;
+  passportNumber: string;
+  dob: string;
+}
+
+export async function addPassengersToBooking(
+  bookingId: number,
+  passengers: PassengerData[]
+): Promise<void> {
+  // Call the stored procedure for each passenger
+  // Note: This may need to be adjusted based on your actual stored procedure signature
+  for (const passenger of passengers) {
+    await callProcedure('add_passenger_to_booking', [
+      { value: bookingId, type: 'INTEGER' },
+      passenger.firstName,
+      passenger.lastName,
+      passenger.passportNumber,
+      { value: passenger.dob, type: 'DATE' }
+    ]);
+  }
 }

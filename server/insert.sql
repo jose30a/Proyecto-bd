@@ -906,7 +906,11 @@ INSERT INTO ser_paq (
         costo_ser,
         inicio_ser,
         fin_ser,
-        millaje_ser
+        millaje_ser,
+        nombre_pasajero,
+        apellido_pasajero,
+        n_pasaporte_pasajero,
+        fecha_nacimiento_pasajero
     )
 SELECT s.cod,
     p.cod,
@@ -923,8 +927,13 @@ SELECT s.cod,
     (
         CAST('2024-01-01' AS DATE) + (floor(random() * 300) || ' days')::interval
     ) + INTERVAL '5 days',
-    100
+    100,
+    u.primer_nombre_usu,
+    u.primer_apellido_usu,
+    u.n_pasaporte_usu,
+    u.fecha_nacimiento
 FROM paquete_turistico p
+    JOIN usuario u ON p.fk_cod_usuario = u.cod
     JOIN servicio s ON s.cod = (
         SELECT cod
         FROM servicio
@@ -939,7 +948,11 @@ INSERT INTO ser_paq (
         costo_ser,
         inicio_ser,
         fin_ser,
-        millaje_ser
+        millaje_ser,
+        nombre_pasajero,
+        apellido_pasajero,
+        n_pasaporte_pasajero,
+        fecha_nacimiento_pasajero
     )
 SELECT s.cod,
     p.cod,
@@ -950,8 +963,13 @@ SELECT s.cod,
     (
         CAST('2024-01-01' AS DATE) + (floor(random() * 300) || ' days')::interval
     ) + INTERVAL '3 days',
-    50
+    50,
+    u.primer_nombre_usu,
+    u.primer_apellido_usu,
+    u.n_pasaporte_usu,
+    u.fecha_nacimiento
 FROM paquete_turistico p
+    JOIN usuario u ON p.fk_cod_usuario = u.cod
     JOIN servicio s ON s.cod = (
         SELECT cod
         FROM servicio

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Calendar, Clock, DollarSign, Eye, CreditCard, MapPin, Users, Plane } from 'lucide-react';
+import { Calendar, Clock, DollarSign, Eye, CreditCard, MapPin, Users, Plane, X, User, Trash2, Plus } from 'lucide-react';
 import { ImageWithFallback } from './figma/ImageWithFallback';
-import { getUserBookings, getCurrentUser } from '../services/database';
+import { getUserBookings, getCurrentUser, processPayment, addPassengersToBooking } from '../services/database';
 
 type BookingStatus = 'Confirmed' | 'Pending Payment' | 'Cancelled';
 
@@ -17,15 +17,71 @@ interface Booking {
   passengers: number;
   bookingDate: string;
   bookingCode: string;
+  composition?: string;
 }
 
+interface Passenger {
+  id: number;
+  firstName: string;
+  lastName: string;
+  passportNumber: string;
+  dob: string;
+}
+
+interface PaymentDetails {
+  method: 'USDt' | 'PagoMovil' | 'DepositoBancario' | 'TransferenciaBancaria' | 'TarjetaCreditoDebito' | 'Cheque' | 'Zelle' | 'Milla';
+  amount?: number;
+  // TarjetaCreditoDebito fields
+  cardType?: 'Debit' | 'Credit';
+  cardNumber?: string;
+  cvv?: string;
+  cardBankName?: string;
+  expiryDate?: string;
+  cardHolder?: string;
+  // Cheque fields
+  checkNumber?: string;
+  checkHolder?: string;
+  checkBank?: string;
+  checkIssueDate?: string;
+  checkAccountCode?: string;
+  // DepositoBancario fields
+  depositNumber?: string;
+  depositBank?: string;
+  depositDate?: string;
+  depositReference?: string;
+  // TransferenciaBancaria fields
+  transferNumber?: string;
+  transferTime?: string;
+  // PagoMovil fields
+  pmReference?: string;
+  pmTime?: string;
+  // USDt fields
+  usdtDate?: string;
+  usdtTime?: string;
+  usdtWallet?: string;
+  usdtId?: string;
+  // Zelle fields
+  zelleConfirmation?: string;
+  zelleDate?: string;
+  zelleTime?: string;
+  // Milla fields
+  miles?: number;
+}
+
+
 export function MyBookings() {
-
-
-
-
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Payment modal state
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
+  const [passengers, setPassengers] = useState<Passenger[]>([
+    { id: 1, firstName: '', lastName: '', passportNumber: '', dob: '' }
+  ]);
+  const [paymentDetails, setPaymentDetails] = useState<PaymentDetails>({
+    method: 'TarjetaCreditoDebito',
+  });
 
   useEffect(() => {
     loadBookings();
@@ -39,16 +95,17 @@ export function MyBookings() {
         // Map backend data to frontend Booking interface
         const mappedBookings: Booking[] = data.map((b: any) => ({
           id: b.id,
-          packageName: b.package_name,
-          destination: 'Destino Variable', // Backend doesn't give destination yet, or strictly linked. Using placeholder.
-          imageUrl: 'https://images.unsplash.com/photo-1501594907352-04cda38ebc29?w=800&q=80', // Placeholder image
-          startDate: new Date(b.start_date).toISOString().split('T')[0],
+          packageName: b.packageName || b.packagename || b.package_name,
+          destination: b.destination || 'Destino Variable',
+          imageUrl: 'https://images.unsplash.com/photo-1501594907352-04cda38ebc29?w=800&q=80',
+          startDate: b.startDate ? new Date(b.startDate).toISOString().split('T')[0] : (b.start_date ? new Date(b.start_date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]),
           duration: b.duration,
           status: b.status as BookingStatus,
-          totalPrice: parseFloat(b.total_price),
-          passengers: 1, // Placeholder, need detailed passenger count query
-          bookingDate: new Date(b.booking_date).toISOString().split('T')[0],
+          totalPrice: parseFloat(b.totalPrice || b.totalprice || b.total_price || 0),
+          passengers: b.passengers || 1,
+          bookingDate: b.bookingDate ? new Date(b.bookingDate).toISOString().split('T')[0] : (b.booking_date ? new Date(b.booking_date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]),
           bookingCode: `BK-2025-${b.id.toString().padStart(3, '0')}`,
+          composition: b.composition
         }));
         setBookings(mappedBookings);
       }
@@ -59,7 +116,115 @@ export function MyBookings() {
     }
   };
 
+  const handlePassengerChange = (id: number, field: keyof Passenger, value: string) => {
+    setPassengers(passengers.map((p: Passenger) =>
+      p.id === id ? { ...p, [field]: value } : p
+    ));
+  };
 
+  const handleAddPassenger = () => {
+    const newId = Math.max(...passengers.map((p: Passenger) => p.id), 0) + 1;
+    setPassengers([...passengers, {
+      id: newId,
+      firstName: '',
+      lastName: '',
+      passportNumber: '',
+      dob: ''
+    }]);
+  };
+
+  const handleRemovePassenger = (id: number) => {
+    if (passengers.length > 1) {
+      setPassengers(passengers.filter((p: Passenger) => p.id !== id));
+    }
+  };
+
+  const handleSubmitPayment = async () => {
+    if (!selectedBooking) return;
+
+    // Validate passengers
+    const invalidPassenger = passengers.find((p: Passenger) =>
+      !p.firstName.trim() || !p.lastName.trim() || !p.passportNumber.trim() || !p.dob
+    );
+    if (invalidPassenger) {
+      alert('Please fill in all passenger details');
+      return;
+    }
+
+    // Validate payment details based on method
+    if (paymentDetails.method === 'TarjetaCreditoDebito') {
+      if (!paymentDetails.cardNumber || !paymentDetails.cvv || !paymentDetails.expiryDate || !paymentDetails.cardHolder) {
+        alert('Please fill in all card details');
+        return;
+      }
+    }
+
+    try {
+      // Get current user for payment processing
+      const user = await getCurrentUser();
+      if (!user) {
+        alert('Not authenticated. Please log in.');
+        return;
+      }
+
+      // Add passeng to booking first
+      await addPassengersToBooking(
+        selectedBooking.id,
+        passengers.map((p: Passenger) => ({
+          firstName: p.firstName,
+          lastName: p.lastName,
+          passportNumber: p.passportNumber,
+          dob: p.dob
+        }))
+      );
+
+      // Process payment
+      await processPayment(
+        user.cod,
+        selectedBooking.id,
+        selectedBooking.totalPrice,
+        paymentDetails.method,
+        `Payment for ${selectedBooking.packageName}`,
+        {
+          cardNumber: paymentDetails.cardNumber,
+          cardHolder: paymentDetails.cardHolder,
+          expiryDate: paymentDetails.expiryDate,
+          cvv: paymentDetails.cvv,
+          cardBankName: paymentDetails.cardBankName,
+          checkNumber: paymentDetails.checkNumber,
+          checkHolder: paymentDetails.checkHolder,
+          checkBank: paymentDetails.checkBank,
+          checkIssueDate: paymentDetails.checkIssueDate,
+          checkAccountCode: paymentDetails.checkAccountCode,
+          depositNumber: paymentDetails.depositNumber,
+          depositBank: paymentDetails.depositBank,
+          depositDate: paymentDetails.depositDate,
+          depositReference: paymentDetails.depositReference,
+          transferNumber: paymentDetails.transferNumber,
+          transferTime: paymentDetails.transferTime,
+          pmReference: paymentDetails.pmReference,
+          pmTime: paymentDetails.pmTime,
+          usdtWallet: paymentDetails.usdtWallet,
+          usdtDate: paymentDetails.usdtDate,
+          usdtTime: paymentDetails.usdtTime,
+          zelleConfirmation: paymentDetails.zelleConfirmation,
+          zelleDate: paymentDetails.zelleDate,
+          zelleTime: paymentDetails.zelleTime,
+          miles: paymentDetails.miles
+        }
+      );
+
+      alert('Payment processed successfully!');
+      setShowPaymentModal(false);
+      setSelectedBooking(null);
+      setPassengers([{ id: 1, firstName: '', lastName: '', passportNumber: '', dob: '' }]);
+      setPaymentDetails({ method: 'TarjetaCreditoDebito' });
+      await loadBookings(); // Refresh bookings list
+    } catch (error) {
+      console.error('Payment failed:', error);
+      alert(`Payment processing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
 
   const getStatusBadgeStyles = (status: BookingStatus): string => {
     switch (status) {
@@ -86,7 +251,11 @@ export function MyBookings() {
   };
 
   const handlePayNow = (bookingId: number) => {
-    alert(`Proceed to payment for booking ID: ${bookingId}`);
+    const booking = bookings.find((b: Booking) => b.id === bookingId);
+    if (booking) {
+      setSelectedBooking(booking);
+      setShowPaymentModal(true);
+    }
   };
 
   return (
@@ -111,7 +280,7 @@ export function MyBookings() {
       {/* Bookings List */}
       {bookings.length > 0 ? (
         <div className="space-y-4">
-          {bookings.map(booking => (
+          {bookings.map((booking: Booking) => (
             <div
               key={booking.id}
               className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg p-6 hover:shadow-md transition-shadow flex flex-col md:flex-row md:items-center justify-between gap-6"
@@ -129,6 +298,11 @@ export function MyBookings() {
                     <Plane className="w-4 h-4" />
                     <span>{booking.bookingCode}</span>
                   </div>
+                  {booking.composition && (
+                    <p className="text-xs text-[var(--color-text-secondary)] mt-2 italic bg-[var(--color-background)] p-2 rounded border border-[var(--color-border)]">
+                      Includes: {booking.composition}
+                    </p>
+                  )}
                 </div>
 
                 <div className="flex flex-wrap gap-4 mt-4">
@@ -210,6 +384,415 @@ export function MyBookings() {
               <p className="text-[var(--color-text-secondary)]">
                 You don't have any trips booked yet.
               </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Modal */}
+      {showPaymentModal && selectedBooking && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-[var(--color-card)] rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
+            <div className="sticky top-0 bg-[var(--color-card)] border-b border-[var(--color-border)] p-6 flex items-center justify-between z-10">
+              <div>
+                <h2 className="text-2xl font-bold text-[var(--color-text-primary)]">Complete Payment</h2>
+                <p className="text-sm text-[var(--color-text-secondary)] mt-1">
+                  {selectedBooking.packageName} - ${selectedBooking.totalPrice.toLocaleString()}
+                </p>
+              </div>
+              <button
+                onClick={() => {
+                  setShowPaymentModal(false);
+                  setSelectedBooking(null);
+                }}
+                className="p-2 hover:bg-[var(--color-background)] rounded-md transition-colors"
+              >
+                <X className="w-6 h-6 text-[var(--color-text-secondary)]" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 space-y-8">
+              {/* Passenger Details Section */}
+              <div>
+                <h3 className="text-lg font-semibold text-[var(--color-text-primary)] mb-4">Passenger Details</h3>
+                <div className="space-y-4">
+                  {passengers.map((passenger: Passenger, index: number) => (
+                    <div key={passenger.id} className="border border-[var(--color-border)] rounded-lg p-6">
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="text-[var(--color-text-primary)] flex items-center gap-2">
+                          <User className="w-5 h-5 text-[var(--color-primary-blue)]" />
+                          Passenger {index + 1}
+                        </h4>
+                        {passengers.length > 1 && (
+                          <button
+                            onClick={() => handleRemovePassenger(passenger.id)}
+                            className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors"
+                            title="Remove passenger"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
+                            First Name <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={passenger.firstName}
+                            onChange={(e) => handlePassengerChange(passenger.id, 'firstName', e.target.value)}
+                            className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
+                            placeholder="Enter first name"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
+                            Last Name <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={passenger.lastName}
+                            onChange={(e) => handlePassengerChange(passenger.id, 'lastName', e.target.value)}
+                            className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
+                            placeholder="Enter last name"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
+                            Passport Number <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={passenger.passportNumber}
+                            onChange={(e) => handlePassengerChange(passenger.id, 'passportNumber', e.target.value)}
+                            className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
+                            placeholder="Enter passport number"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
+                            Date of Birth <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="date"
+                            value={passenger.dob}
+                            onChange={(e) => handlePassengerChange(passenger.id, 'dob', e.target.value)}
+                            className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  <button
+                    onClick={handleAddPassenger}
+                    className="w-full py-3 border-2 border-dashed border-[var(--color-border)] rounded-lg text-[var(--color-text-secondary)] hover:border-[var(--color-primary-blue)] hover:text-[var(--color-primary-blue)] transition-colors flex items-center justify-center gap-2"
+                  >
+                    <Plus className="w-5 h-5" />
+                    Add Another Passenger
+                  </button>
+                </div>
+              </div>
+
+              {/* Payment Method Section */}
+              <div>
+                <h3 className="text-lg font-semibold text-[var(--color-text-primary)] mb-4">Payment Method</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                  {(['TarjetaCreditoDebito', 'Zelle', 'USDt', 'PagoMovil', 'DepositoBancario', 'TransferenciaBancaria', 'Cheque', 'Milla'] as const).map(method => (
+                    <button
+                      key={method}
+                      onClick={() => setPaymentDetails({ ...paymentDetails, method })}
+                      className={`px-4 py-3 border-2 rounded-lg transition-all text-xs font-medium ${paymentDetails.method === method
+                        ? 'border-[var(--color-primary-blue)] bg-blue-50 text-[var(--color-primary-blue)]'
+                        : 'border-[var(--color-border)] hover:border-[var(--color-primary-blue)] text-[var(--color-text-primary)]'
+                        }`}
+                    >
+                      {method === 'TarjetaCreditoDebito' ? 'Tarjeta C/D' :
+                        method === 'PagoMovil' ? 'Pago Móvil' :
+                          method === 'DepositoBancario' ? 'Depósito' :
+                            method === 'TransferenciaBancaria' ? 'Transferencia' :
+                              method}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Payment Details Form */}
+                <div className="border border-[var(--color-border)] rounded-lg p-6 space-y-4">
+                  <h4 className="text-[var(--color-text-primary)] flex items-center gap-2 mb-4">
+                    <DollarSign className="w-5 h-5 text-[var(--color-primary-blue)]" />
+                    {paymentDetails.method} Details
+                  </h4>
+
+                  {/* Tarjeta Crédito/Débito */}
+                  {paymentDetails.method === 'TarjetaCreditoDebito' && (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
+                          Card Number <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={paymentDetails.cardNumber || ''}
+                          onChange={(e) => setPaymentDetails({ ...paymentDetails, cardNumber: e.target.value })}
+                          className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md"
+                          placeholder="1234 5678 9012 3456"
+                          maxLength={19}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[var(--color-text-primary)] mb-2 text-sm">Card Holder Name <span className="text-red-500">*</span></label>
+                        <input
+                          type="text"
+                          value={paymentDetails.cardHolder || ''}
+                          onChange={(e) => setPaymentDetails({ ...paymentDetails, cardHolder: e.target.value })}
+                          className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md"
+                          placeholder="Name as on card"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-[var(--color-text-primary)] mb-2 text-sm">Expiry Date <span className="text-red-500">*</span></label>
+                          <input
+                            type="text"
+                            value={paymentDetails.expiryDate || ''}
+                            onChange={(e) => setPaymentDetails({ ...paymentDetails, expiryDate: e.target.value })}
+                            className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md"
+                            placeholder="MM/YY"
+                            maxLength={5}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[var(--color-text-primary)] mb-2 text-sm">CVV <span className="text-red-500">*</span></label>
+                          <input
+                            type="text"
+                            value={paymentDetails.cvv || ''}
+                            onChange={(e) => setPaymentDetails({ ...paymentDetails, cvv: e.target.value })}
+                            className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md"
+                            placeholder="123"
+                            maxLength={4}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Zelle */}
+                  {paymentDetails.method === 'Zelle' && (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-[var(--color-text-primary)] mb-2 text-sm">Confirmation Number <span className="text-red-500">*</span></label>
+                        <input
+                          type="text"
+                          value={paymentDetails.zelleConfirmation || ''}
+                          onChange={(e) => setPaymentDetails({ ...paymentDetails, zelleConfirmation: e.target.value })}
+                          className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* USDt */}
+                  {paymentDetails.method === 'USDt' && (
+                    <div className="space-y-4">
+                      <div className="bg-gray-100 p-3 rounded text-sm text-[var(--color-text-secondary)] break-all">
+                        Send to: <strong>0x123...abc</strong> (Network: TRC20)
+                      </div>
+                      <div>
+                        <label className="block text-[var(--color-text-primary)] mb-2 text-sm">Your Wallet Address <span className="text-red-500">*</span></label>
+                        <input
+                          type="text"
+                          value={paymentDetails.usdtWallet || ''}
+                          onChange={(e) => setPaymentDetails({ ...paymentDetails, usdtWallet: e.target.value })}
+                          className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Pago Móvil */}
+                  {paymentDetails.method === 'PagoMovil' && (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-[var(--color-text-primary)] mb-2 text-sm">Reference Number <span className="text-red-500">*</span></label>
+                        <input
+                          type="text"
+                          value={paymentDetails.pmReference || ''}
+                          onChange={(e) => setPaymentDetails({ ...paymentDetails, pmReference: e.target.value })}
+                          className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md"
+                          placeholder="Enter reference number"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[var(--color-text-primary)] mb-2 text-sm">Payment Time <span className="text-red-500">*</span></label>
+                        <input
+                          type="datetime-local"
+                          value={paymentDetails.pmTime || ''}
+                          onChange={(e) => setPaymentDetails({ ...paymentDetails, pmTime: e.target.value })}
+                          className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Depósito Bancario */}
+                  {paymentDetails.method === 'DepositoBancario' && (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-[var(--color-text-primary)] mb-2 text-sm">Deposit Number <span className="text-red-500">*</span></label>
+                        <input
+                          type="text"
+                          value={paymentDetails.depositNumber || ''}
+                          onChange={(e) => setPaymentDetails({ ...paymentDetails, depositNumber: e.target.value })}
+                          className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[var(--color-text-primary)] mb-2 text-sm">Bank <span className="text-red-500">*</span></label>
+                        <input
+                          type="text"
+                          value={paymentDetails.depositBank || ''}
+                          onChange={(e) => setPaymentDetails({ ...paymentDetails, depositBank: e.target.value })}
+                          className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[var(--color-text-primary)] mb-2 text-sm">Deposit Date <span className="text-red-500">*</span></label>
+                        <input
+                          type="date"
+                          value={paymentDetails.depositDate || ''}
+                          onChange={(e) => setPaymentDetails({ ...paymentDetails, depositDate: e.target.value })}
+                          className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[var(--color-text-primary)] mb-2 text-sm">Reference Number</label>
+                        <input
+                          type="text"
+                          value={paymentDetails.depositReference || ''}
+                          onChange={(e) => setPaymentDetails({ ...paymentDetails, depositReference: e.target.value })}
+                          className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Transferencia Bancaria */}
+                  {paymentDetails.method === 'TransferenciaBancaria' && (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-[var(--color-text-primary)] mb-2 text-sm">Transfer Number <span className="text-red-500">*</span></label>
+                        <input
+                          type="text"
+                          value={paymentDetails.transferNumber || ''}
+                          onChange={(e) => setPaymentDetails({ ...paymentDetails, transferNumber: e.target.value })}
+                          className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[var(--color-text-primary)] mb-2 text-sm">Transfer Time <span className="text-red-500">*</span></label>
+                        <input
+                          type="datetime-local"
+                          value={paymentDetails.transferTime || ''}
+                          onChange={(e) => setPaymentDetails({ ...paymentDetails, transferTime: e.target.value })}
+                          className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Cheque */}
+                  {paymentDetails.method === 'Cheque' && (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-[var(--color-text-primary)] mb-2 text-sm">Check Number <span className="text-red-500">*</span></label>
+                        <input
+                          type="text"
+                          value={paymentDetails.checkNumber || ''}
+                          onChange={(e) => setPaymentDetails({ ...paymentDetails, checkNumber: e.target.value })}
+                          className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[var(--color-text-primary)] mb-2 text-sm">Account Code <span className="text-red-500">*</span></label>
+                        <input
+                          type="text"
+                          value={paymentDetails.checkAccountCode || ''}
+                          onChange={(e) => setPaymentDetails({ ...paymentDetails, checkAccountCode: e.target.value })}
+                          className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[var(--color-text-primary)] mb-2 text-sm">Check Holder <span className="text-red-500">*</span></label>
+                        <input
+                          type="text"
+                          value={paymentDetails.checkHolder || ''}
+                          onChange={(e) => setPaymentDetails({ ...paymentDetails, checkHolder: e.target.value })}
+                          className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[var(--color-text-primary)] mb-2 text-sm">Issuing Bank <span className="text-red-500">*</span></label>
+                        <input
+                          type="text"
+                          value={paymentDetails.checkBank || ''}
+                          onChange={(e) => setPaymentDetails({ ...paymentDetails, checkBank: e.target.value })}
+                          className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[var(--color-text-primary)] mb-2 text-sm">Issue Date <span className="text-red-500">*</span></label>
+                        <input
+                          type="date"
+                          value={paymentDetails.checkIssueDate || ''}
+                          onChange={(e) => setPaymentDetails({ ...paymentDetails, checkIssueDate: e.target.value })}
+                          className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Milla */}
+                  {paymentDetails.method === 'Milla' && (
+                    <div className="space-y-4">
+                      <p className="text-sm text-[var(--color-text-secondary)]">Payment with accumulated miles.</p>
+                      <div>
+                        <label className="block text-[var(--color-text-primary)] mb-2 text-sm">Miles to Redeem <span className="text-red-500">*</span></label>
+                        <input
+                          type="number"
+                          value={paymentDetails.miles || ''}
+                          onChange={(e) => setPaymentDetails({ ...paymentDetails, miles: parseInt(e.target.value) })}
+                          className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md"
+                          placeholder="Amount of miles"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="sticky bottom-0 bg-[var(--color-card)] border-t border-[var(--color-border)] p-6 flex items-center justify-between">
+              <button
+                onClick={() => {
+                  setShowPaymentModal(false);
+                  setSelectedBooking(null);
+                }}
+                className="px-6 py-3 bg-[var(--color-background)] hover:bg-[var(--color-border)] text-[var(--color-text-primary)] rounded-md transition-colors border border-[var(--color-border)]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmitPayment}
+                className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-md transition-colors flex items-center gap-2"
+              >
+                <CreditCard className="w-5 h-5" />
+                Complete Payment ${selectedBooking.totalPrice.toLocaleString()}
+              </button>
             </div>
           </div>
         </div>
