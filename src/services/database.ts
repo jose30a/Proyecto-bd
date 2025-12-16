@@ -325,7 +325,6 @@ export async function upsertAirline(airline: Partial<Airline> & { name: string; 
       airline.name,
       airline.origin_type || 'Internacional',
       airline.fk_lug || null,
-      airline.status || 'Active',
     ]
   );
 }

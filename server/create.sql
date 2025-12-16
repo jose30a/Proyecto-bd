@@ -918,6 +918,16 @@ WHERE cod = v_id;
 END IF;
 END;
 $$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE PROCEDURE upsert_promotion(
+        p_id INTEGER,
+        p_tipo TEXT,
+        p_discount INTEGER
+    ) AS $$
+BEGIN
+    CALL upsert_promotion(p_id::TEXT, p_tipo, p_discount);
+END;
+$$ LANGUAGE plpgsql;
 DROP PROCEDURE IF EXISTS delete_promotion(INTEGER) CASCADE;
 CREATE OR REPLACE PROCEDURE delete_promotion(p_id INTEGER) AS $$ BEGIN -- First delete all promotion-service associations
 DELETE FROM pro_ser
@@ -1002,15 +1012,15 @@ $$ LANGUAGE plpgsql;
 -- =============================================
 -- Upsert Airline (Refactored)
 -- =============================================
-DROP PROCEDURE IF EXISTS upsert_airline(INTEGER, VARCHAR, VARCHAR, VARCHAR, VARCHAR) CASCADE;
+DROP PROCEDURE IF EXISTS upsert_airline(INTEGER, VARCHAR, VARCHAR, INTEGER, VARCHAR) CASCADE;
 DROP PROCEDURE IF EXISTS upsert_airline(INTEGER, VARCHAR, DATE, VARCHAR, INTEGER) CASCADE;
 DROP PROCEDURE IF EXISTS upsert_airline(TEXT, VARCHAR, VARCHAR, INTEGER, VARCHAR) CASCADE;
+DROP PROCEDURE IF EXISTS upsert_airline(TEXT, VARCHAR, VARCHAR, INTEGER, VARCHAR, VARCHAR, VARCHAR, VARCHAR) CASCADE;
 CREATE OR REPLACE PROCEDURE upsert_airline(
         p_id TEXT,
         p_name VARCHAR,
         p_origin_type VARCHAR,
-        p_fk_lug INTEGER,
-        p_status VARCHAR
+        p_fk_lug INTEGER
     ) AS $$
 DECLARE v_id INTEGER;
 BEGIN -- Handle p_id as TEXT
@@ -1030,18 +1040,28 @@ INSERT INTO aerolinea (
 VALUES (
         p_name,
         COALESCE(p_origin_type, 'Internacional'),
-        COALESCE(p_status, 'Active'),
+        'Active',
         CURRENT_DATE,
         p_fk_lug
-    );
+    ) RETURNING cod INTO v_id;
 ELSE
 UPDATE aerolinea
 SET nombre = p_name,
     origen_aer = COALESCE(p_origin_type, origen_aer),
-    servicio_aer = COALESCE(p_status, servicio_aer),
     fk_cod_lug = COALESCE(p_fk_lug, fk_cod_lug)
 WHERE cod = v_id;
 END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE PROCEDURE upsert_airline(
+        p_id INTEGER,
+        p_name VARCHAR,
+        p_origin_type VARCHAR,
+        p_fk_lug INTEGER
+    ) AS $$
+BEGIN
+    CALL upsert_airline(p_id::TEXT, p_name, p_origin_type, p_fk_lug);
 END;
 $$ LANGUAGE plpgsql;
 DROP PROCEDURE IF EXISTS delete_airline(INTEGER) CASCADE;
@@ -1054,6 +1074,13 @@ WHERE fk_cod_aer = p_id;
 -- Then delete the airline itself
 DELETE FROM aerolinea
 WHERE cod = p_id;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE PROCEDURE delete_airline(p_id TEXT) AS $$
+BEGIN
+    -- Cast to integer and call the main procedure
+    CALL delete_airline(p_id::INTEGER);
 END;
 $$ LANGUAGE plpgsql;
 DROP PROCEDURE IF EXISTS upsert_contact_number(INTEGER, INTEGER, VARCHAR, VARCHAR, VARCHAR) CASCADE;
