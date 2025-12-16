@@ -184,37 +184,28 @@ export function AirlineManagement() {
 
     try {
       // First, upsert the airline
-      await upsertAirline({
-        id: editingAirline ? parseInt(editingAirline.id) : null,
+      // First, upsert the airline and get the ID
+      const newId = await upsertAirline({
+        id: editingAirline ? editingAirline.id : undefined,
         name: formData.name,
         origin_type: formData.originType,
         fk_lug: formData.fkLug
       });
 
-      // Reload airlines to get the newly created airline ID (if new)
-      await loadAirlines();
+      const airlineId = String(newId);
 
-      // Find the airline we just created/updated by name
-      const allAirlines = await getAllAirlines();
-      // Defensive check to avoid crash if finding fails
-      const savedAirline = allAirlines.find((a: any) => a.nombre === formData.name || a.p_nombre === formData.name);
+      // Get existing contact IDs for this airline (from when we loaded it for editing)
+      const existingContactIds = editingAirline ? editingAirline.contactNumbers.map(c => c.id) : [];
 
-      if (savedAirline) {
-        const airlineId = String(savedAirline.id || savedAirline.cod || savedAirline.p_cod);
-
-        // Get existing contact IDs for this airline (from when we loaded it for editing)
-        const existingContactIds = editingAirline ? editingAirline.contactNumbers.map(c => c.id) : [];
-
-        // Save all contact numbers
-        await Promise.all(validContactNumbers.map(c => upsertContactNumber({
-          // Only pass the ID if it's an existing contact from the database
-          id: existingContactIds.includes(c.id) ? c.id : null,
-          airline_id: airlineId,
-          country_code: c.countryCode,
-          number: c.number,
-          type: c.type
-        })));
-      }
+      // Save all contact numbers using the confirmed airline ID
+      await Promise.all(validContactNumbers.map(c => upsertContactNumber({
+        // Only pass the ID if it's an existing contact from the database
+        id: existingContactIds.includes(c.id) ? c.id : null,
+        airline_id: airlineId,
+        country_code: c.countryCode,
+        number: c.number,
+        type: c.type
+      })));
 
       // Reload one more time to show the contacts
       await loadAirlines();

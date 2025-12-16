@@ -1051,6 +1051,7 @@ SET nombre = p_name,
     fk_cod_lug = COALESCE(p_fk_lug, fk_cod_lug)
 WHERE cod = v_id;
 END IF;
+RETURN v_id;
 END;
 $$ LANGUAGE plpgsql;
 
