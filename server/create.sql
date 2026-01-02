@@ -998,6 +998,7 @@ WHERE l.tipo_lug = 'Pais'
 ORDER BY l.nombre_lug;
 END;
 $$ LANGUAGE plpgsql;
+DROP FUNCTION IF EXISTS get_cities(INTEGER) CASCADE;
 CREATE OR REPLACE FUNCTION get_cities(p_country_id INTEGER) RETURNS TABLE (
         cod_lug INTEGER,
         nombre_lug VARCHAR
@@ -1016,13 +1017,7 @@ DROP PROCEDURE IF EXISTS upsert_airline(INTEGER, VARCHAR, VARCHAR, INTEGER, VARC
 DROP PROCEDURE IF EXISTS upsert_airline(INTEGER, VARCHAR, DATE, VARCHAR, INTEGER) CASCADE;
 DROP PROCEDURE IF EXISTS upsert_airline(TEXT, VARCHAR, VARCHAR, INTEGER, VARCHAR) CASCADE;
 DROP PROCEDURE IF EXISTS upsert_airline(TEXT, VARCHAR, VARCHAR, INTEGER, VARCHAR, VARCHAR, VARCHAR, VARCHAR) CASCADE;
-CREATE OR REPLACE PROCEDURE upsert_airline(
-DROP ROUTINE IF EXISTS upsert_airline(INTEGER, VARCHAR, VARCHAR, VARCHAR, VARCHAR) CASCADE;
-DROP ROUTINE IF EXISTS upsert_airline(INTEGER, VARCHAR, DATE, VARCHAR, INTEGER) CASCADE;
-DROP ROUTINE IF EXISTS upsert_airline(TEXT, VARCHAR, VARCHAR, INTEGER, VARCHAR) CASCADE;
-DROP ROUTINE IF EXISTS upsert_airline(TEXT, VARCHAR, VARCHAR, INTEGER, VARCHAR, VARCHAR, VARCHAR, VARCHAR) CASCADE;
-DROP ROUTINE IF EXISTS upsert_airline(TEXT, VARCHAR, VARCHAR, INTEGER) CASCADE;
-DROP ROUTINE IF EXISTS upsert_airline(INTEGER, VARCHAR, VARCHAR, INTEGER) CASCADE;
+DROP ROUTINE IF EXISTS upsert_airline(INTEGER, VARCHAR, VARCHAR, INTEGER);
 
 CREATE OR REPLACE FUNCTION upsert_airline(
         p_id INTEGER,
@@ -1040,7 +1035,7 @@ CREATE OR REPLACE FUNCTION upsert_airline(
         p_name VARCHAR,
         p_origin_type VARCHAR,
         p_fk_lug INTEGER
-    ) AS $$
+    ) RETURNS INTEGER AS $$
 DECLARE v_id INTEGER;
 BEGIN -- Handle p_id as TEXT
 IF p_id IS NULL
@@ -1074,16 +1069,6 @@ RETURN v_id;
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE OR REPLACE PROCEDURE upsert_airline(
-        p_id INTEGER,
-        p_name VARCHAR,
-        p_origin_type VARCHAR,
-        p_fk_lug INTEGER
-    ) AS $$
-BEGIN
-    CALL upsert_airline(p_id::TEXT, p_name, p_origin_type, p_fk_lug);
-END;
-$$ LANGUAGE plpgsql;
 DROP PROCEDURE IF EXISTS delete_airline(INTEGER) CASCADE;
 CREATE OR REPLACE PROCEDURE delete_airline(p_id INTEGER) AS $$ BEGIN -- First delete all airline-service associations
 DELETE FROM ser_aer
@@ -1097,6 +1082,7 @@ WHERE cod = p_id;
 END;
 $$ LANGUAGE plpgsql;
 
+DROP PROCEDURE IF EXISTS delete_airline(TEXT) CASCADE;
 CREATE OR REPLACE PROCEDURE delete_airline(p_id TEXT) AS $$
 BEGIN
     -- Cast to integer and call the main procedure
