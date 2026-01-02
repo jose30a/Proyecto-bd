@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Calendar, Clock, DollarSign, Eye, CreditCard, MapPin, Users, Plane, X, User, Trash2, Plus } from 'lucide-react';
+import { Calendar, MapPin, Package, Clock, CreditCard, ChevronRight, AlertCircle, ShoppingBag, Star, Trash2, DollarSign, Eye, Users, Plane, X, User, Plus } from 'lucide-react';
 import { ImageWithFallback } from './figma/ImageWithFallback';
-import { getUserBookings, getCurrentUser, processPayment, addPassengersToBooking } from '../services/database';
+import { getUserBookings, getCurrentUser, toggleWishlist, getWishlist, addPassengersToBooking, processPayment } from '../services/database';
 
 type BookingStatus = 'Confirmed' | 'Pending Payment' | 'Cancelled';
 
@@ -72,6 +72,9 @@ interface PaymentDetails {
 export function MyBookings() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [user, setUser] = useState<any>(null);
+  const [wishlist, setWishlist] = useState<any[]>([]);
 
   // Payment modal state
   const [showPaymentModal, setShowPaymentModal] = useState(false);
@@ -84,16 +87,32 @@ export function MyBookings() {
   });
 
   useEffect(() => {
-    loadBookings();
+    loadData();
   }, []);
 
-  const loadBookings = async () => {
+  const loadBookings = () => loadData();
+
+  const handleRemoveFromWishlist = async (pkgId: number) => {
+    if (!user) return;
     try {
-      const user = await getCurrentUser();
-      if (user?.cod) {
-        const data = await getUserBookings(user.cod);
+      await toggleWishlist(user.cod, pkgId);
+      setWishlist(wishlist.filter(item => item.id !== pkgId));
+    } catch (err) {
+      console.error('Failed to remove from wishlist', err);
+    }
+  };
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const currentUser = await getCurrentUser();
+      setUser(currentUser);
+
+      if (currentUser?.cod) {
+        const data = await getUserBookings(currentUser.cod);
         // Map backend data to frontend Booking interface
-        const mappedBookings: Booking[] = data.map((b: any) => ({
+        const userBookings: Booking[] = data.map((b: any) => ({
           id: b.id,
           packageName: b.packageName || b.packagename || b.package_name,
           destination: b.destination || 'Destino Variable',
@@ -107,10 +126,14 @@ export function MyBookings() {
           bookingCode: `BK-2025-${b.id.toString().padStart(3, '0')}`,
           composition: b.composition
         }));
-        setBookings(mappedBookings);
+        setBookings(userBookings);
+
+        const userWishlist = await getWishlist(currentUser.cod);
+        setWishlist(userWishlist || []);
       }
     } catch (error) {
-      console.error('Failed to load bookings:', error);
+      console.error('Failed to load data:', error);
+      setError('Failed to load data. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -269,6 +292,55 @@ export function MyBookings() {
           View and manage all your travel bookings
         </p>
       </div>
+
+      {/* Wishlist Section */}
+      {wishlist.length > 0 && (
+        <div className="mb-12">
+          <div className="flex items-center gap-2 mb-6">
+            <Star className="w-6 h-6 text-yellow-500 fill-current" />
+            <h2 className="text-xl font-bold text-[var(--color-text-primary)]">My Wishlist</h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {wishlist.map((item: any) => (
+              <div key={item.id} className="bg-[var(--color-card)] rounded-xl shadow-sm border border-[var(--color-border)] overflow-hidden hover:shadow-md transition-shadow">
+                <div className="p-5">
+                  <div className="flex justify-between items-start mb-3">
+                    <h3 className="font-bold text-lg text-[var(--color-text-primary)]">{item.packageName || item.packagename}</h3>
+                    <button
+                      onClick={() => handleRemoveFromWishlist(item.id)}
+                      className="p-1.5 text-gray-400 hover:text-red-500 transition-colors"
+                      title="Remove from wishlist"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <p className="text-[var(--color-text-secondary)] text-sm mb-4 line-clamp-2">{item.description}</p>
+                  <div className="flex flex-wrap gap-4 text-xs text-[var(--color-text-secondary)] mb-4">
+                    <div className="flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5 text-[var(--color-primary-blue)]" />
+                      {item.duracion} days
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <MapPin className="w-3.5 h-3.5 text-[var(--color-primary-blue)]" />
+                      {item.millaje} miles
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between pt-4 border-t border-[var(--color-border)]">
+                    <span className="font-bold text-[var(--color-text-primary)]">${Number(item.totalPrice || item.totalprice).toLocaleString()}</span>
+                    <button
+                      className="text-sm font-medium text-[var(--color-primary-blue)] hover:underline flex items-center gap-1"
+                      onClick={() => window.location.href = '/itinerary'}
+                    >
+                      View Details
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Bookings Count */}
       <div className="mb-6">

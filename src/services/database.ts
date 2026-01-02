@@ -435,6 +435,31 @@ export interface PackageDetailItem {
   millaje?: number;
 }
 
+export async function getPackageReviews(packageId: number) {
+  return callFunction('get_package_reviews', [packageId]);
+}
+
+export async function toggleWishlist(userId: number, packageId: number) {
+  return callProcedure('toggle_wishlist', [
+    { value: userId, type: 'INTEGER' },
+    { value: packageId, type: 'INTEGER' }
+  ]);
+}
+
+export async function checkInWishlist(userId: number, packageId: number): Promise<boolean> {
+  const result = await callFunction('is_in_wishlist', [
+    { value: userId, type: 'INTEGER' },
+    { value: packageId, type: 'INTEGER' }
+  ]);
+  return result[0]?.is_in_wishlist ?? false;
+}
+
+export async function getWishlist(userId: number) {
+  return callFunction('get_user_wishlist', [
+    { value: userId, type: 'INTEGER' }
+  ]);
+}
+
 export async function getPackageDetails(packageId: number): Promise<PackageDetailItem[]> {
   const rows = await callFunction<any>('get_package_details', [packageId]);
   return rows.map((r: any) => ({
@@ -634,6 +659,70 @@ export async function addChildPackage(parentId: number, childId: number): Promis
 
 export async function removeChildPackage(parentId: number, childId: number): Promise<void> {
   await callProcedure('remove_child_package', [parentId, childId]);
+}
+
+// ==================== Tag Management ====================
+
+export interface Tag {
+  cod: number;
+  nombre_tag: string;
+  condicion1_tag?: string;
+  condicional_tag?: string;
+  condicion2_tag?: string;
+  restriccion_tag: boolean;
+}
+
+export async function getAllTags(): Promise<Tag[]> {
+  const rows = await callFunction<any>('get_all_tags', []);
+  return rows.map((r: any) => ({
+    cod: r.p_cod,
+    nombre_tag: r.p_nombre_tag,
+    condicion1_tag: r.p_condicion1_tag,
+    condicional_tag: r.p_condicional_tag,
+    condicion2_tag: r.p_condicion2_tag,
+    restriccion_tag: r.p_restriccion_tag
+  }));
+}
+
+export async function getPackageTags(packageId: number): Promise<Tag[]> {
+  const rows = await callFunction<any>('get_package_tags', [packageId]);
+  return rows.map((r: any) => ({
+    cod: r.p_cod,
+    nombre_tag: r.p_nombre_tag,
+    restriccion_tag: r.p_is_restrict
+  }));
+}
+
+export async function upsertTag(tag: Partial<Tag>) {
+  await callProcedure('upsert_tag', [
+    { value: tag.cod || null, type: 'INTEGER' },
+    tag.nombre_tag,
+    tag.condicion1_tag || '',
+    tag.condicional_tag || '',
+    tag.condicion2_tag || '',
+    tag.restriccion_tag || false
+  ]);
+}
+
+export async function assignTagToPackage(tagId: number, packageId: number) {
+  await callProcedure('assign_tag_to_package', [
+    { value: tagId, type: 'INTEGER' },
+    { value: packageId, type: 'INTEGER' }
+  ]);
+}
+
+export async function removeAllTagsFromPackage(packageId: number) {
+  await callProcedure('remove_all_tags_from_package', [
+    { value: packageId, type: 'INTEGER' }
+  ]);
+}
+
+export async function checkPackageRestrictions(userId: number, packageId: number): Promise<string[]> {
+  const rows = await callFunction<any>('check_package_restrictions', [
+    { value: userId, type: 'INTEGER' },
+    { value: packageId, type: 'INTEGER' }
+  ]);
+  return rows.map((r: any) => r.failed_tag_name || r.p_nombre_tag);
 }
 
 /**

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Check, Search, ShoppingCart, User, CreditCard, DollarSign, Package, Plane, Hotel, Plus, Trash2, ChevronRight, ChevronLeft, Calendar, Users, X } from 'lucide-react';
-import { getAllPackages, getPackageDetails, createPackageReturningId, addChildPackage, getCurrentUser, processPayment } from '../services/database';
+import { Check, Search, ShoppingCart, User, CreditCard, DollarSign, Package, Plane, Hotel, Plus, Trash2, ChevronRight, ChevronLeft, Calendar, Users, X, Star } from 'lucide-react';
+import { getAllPackages, getPackageDetails, createPackageReturningId, addChildPackage, getCurrentUser, processPayment, toggleWishlist, checkInWishlist, checkPackageRestrictions } from '../services/database';
 
 interface ServiceItem {
   id: number;
@@ -109,6 +109,8 @@ export function BuildItinerary() {
 
   const [packages, setPackages] = useState<PackageItem[]>([]);
   const [services, setServices] = useState<ServiceItem[]>([]);
+  const [wishlistedIds, setWishlistedIds] = useState<Set<number>>(new Set());
+  const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -141,6 +143,18 @@ export function BuildItinerary() {
         }));
         if (!mounted) return;
         setPackages(mapped);
+
+        // Fetch user and wishlist status
+        const currentUser = await getCurrentUser().catch(() => null);
+        if (currentUser && mounted) {
+          setUser(currentUser);
+          const wishStatus = await Promise.all(mapped.map(async (p) => {
+            const isWish = await checkInWishlist(currentUser.cod, p.id);
+            return { id: p.id, isWish };
+          }));
+          const wishIds = new Set(wishStatus.filter(s => s.isWish).map(s => s.id));
+          setWishlistedIds(wishIds);
+        }
       } catch (err) {
         console.error('Failed to load packages', err);
       }
@@ -171,9 +185,22 @@ export function BuildItinerary() {
 
   const totalCost = cart.reduce((sum: number, item: CartItem) => sum + (item.price * item.quantity), 0);
 
-  const handleAddPackageToCart = (pkg: PackageItem) => {
+  const handleAddPackageToCart = async (pkg: PackageItem) => {
+    // Check restrictions
+    if (user) {
+      try {
+        const failedTags = await checkPackageRestrictions(user.cod, pkg.id);
+        if (failedTags.length > 0) {
+          alert(`Cannot add package "${pkg.name}". You do not meet the following restrictions: ${failedTags.join(', ')}`);
+          return;
+        }
+      } catch (err) {
+        console.error('Restriction check failed', err);
+      }
+    }
+
     const cartId = `pkg-${pkg.id}`;
-    const existing = cart.find(item => item.id === cartId);
+    const existing = cart.find((item: CartItem) => item.id === cartId);
 
     if (existing) {
       setCart(cart.map((item: CartItem) =>
@@ -196,7 +223,7 @@ export function BuildItinerary() {
           }]));
         } catch (err) {
           console.error('Failed to load package details', err);
-          setCart(prev => ([...prev, {
+          setCart((prev: CartItem[]) => ([...prev, {
             id: cartId,
             itemType: 'package',
             name: pkg.name,
@@ -210,9 +237,28 @@ export function BuildItinerary() {
     }
   };
 
+  const handleToggleWishlist = async (pkgId: number) => {
+    if (!user) {
+      alert('Please log in to use the wishlist');
+      return;
+    }
+    try {
+      await toggleWishlist(user.cod, pkgId);
+      setWishlistedIds((prev: Set<number>) => {
+        const next = new Set(prev);
+        if (next.has(pkgId)) next.delete(pkgId);
+        else next.add(pkgId);
+        return next;
+      });
+    } catch (err) {
+      console.error('Failed to toggle wishlist', err);
+    }
+  };
+
+
   const handleAddServiceToCart = (service: ServiceItem) => {
     const cartId = `svc-${service.id}`;
-    const existing = cart.find(item => item.id === cartId);
+    const existing = cart.find((item: CartItem) => item.id === cartId);
 
     if (existing) {
       setCart(cart.map((item: CartItem) =>
@@ -232,8 +278,9 @@ export function BuildItinerary() {
   };
 
   const handleRemoveFromCart = (id: string) => {
-    setCart(cart.filter(item => item.id !== id));
+    setCart(cart.filter((item: CartItem) => item.id !== id));
   };
+
 
   const handleUpdateQuantity = (id: string, newQuantity: number) => {
     if (newQuantity < 1) return;
@@ -467,13 +514,32 @@ export function BuildItinerary() {
                               </div>
                               <div className="text-right ml-4">
                                 <div className="text-[var(--color-text-primary)] mb-2">${pkg.price.toLocaleString()}</div>
-                                <button
-                                  onClick={() => handleAddPackageToCart(pkg)}
-                                  className="px-3 py-1.5 bg-[var(--color-primary-blue)] hover:bg-[var(--color-primary-blue-hover)] text-white rounded-md transition-colors text-sm flex items-center gap-1"
-                                >
-                                  <Plus className="w-4 h-4" />
-                                  Add
-                                </button>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => handleToggleWishlist(pkg.id)}
+                                    className={`p-1.5 rounded-md transition-colors border ${wishlistedIds.has(pkg.id)
+                                      ? 'bg-yellow-50 border-yellow-200 text-yellow-600'
+                                      : 'bg-gray-50 border-gray-200 text-gray-400 hover:text-yellow-600'
+                                      }`}
+                                    title={wishlistedIds.has(pkg.id) ? "Remove from wishlist" : "Add to wishlist"}
+                                  >
+                                    <Star className={`w-4 h-4 ${wishlistedIds.has(pkg.id) ? 'fill-current' : ''}`} />
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      // Restriction check: Example - only allow adding if package price is > 0
+                                      if (pkg.price <= 0) {
+                                        alert('Cannot add free packages to cart.');
+                                        return;
+                                      }
+                                      handleAddPackageToCart(pkg);
+                                    }}
+                                    className="px-3 py-1.5 bg-[var(--color-primary-blue)] hover:bg-[var(--color-primary-blue-hover)] text-white rounded-md transition-colors text-sm flex items-center gap-1"
+                                  >
+                                    <Plus className="w-4 h-4" />
+                                    Add
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           </div>

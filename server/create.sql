@@ -2267,3 +2267,231 @@ WHERE p.fk_cod_usuario = p_user_id
 GROUP BY p.cod;
 END;
 $$ LANGUAGE plpgsql;
+-- =============================================
+-- Wishlist Functions
+-- =============================================
+CREATE OR REPLACE PROCEDURE toggle_wishlist(
+        p_user_id INTEGER,
+        p_package_id INTEGER
+    ) AS $$ BEGIN IF EXISTS (
+        SELECT 1
+        FROM deseo
+        WHERE fk_cod_usuario = p_user_id
+            AND fk_cod_paquete = p_package_id
+    ) THEN
+DELETE FROM deseo
+WHERE fk_cod_usuario = p_user_id
+    AND fk_cod_paquete = p_package_id;
+ELSE
+INSERT INTO deseo (descripcion_des, fk_cod_usuario, fk_cod_paquete)
+SELECT 'Wishlist: ' || nombre_paq,
+    p_user_id,
+    p_package_id
+FROM paquete_turistico
+WHERE cod = p_package_id;
+END IF;
+END;
+$$ LANGUAGE plpgsql;
+CREATE OR REPLACE FUNCTION is_in_wishlist(
+        p_user_id INTEGER,
+        p_package_id INTEGER
+    ) RETURNS BOOLEAN AS $$ BEGIN RETURN EXISTS (
+        SELECT 1
+        FROM deseo
+        WHERE fk_cod_usuario = p_user_id
+            AND fk_cod_paquete = p_package_id
+    );
+END;
+$$ LANGUAGE plpgsql;
+CREATE OR REPLACE FUNCTION get_user_wishlist(p_user_id INTEGER) RETURNS TABLE (
+        id INTEGER,
+        packageName VARCHAR,
+        description TEXT,
+        totalPrice DECIMAL,
+        millaje INTEGER,
+        duracion INTEGER
+    ) AS $$ BEGIN RETURN QUERY
+SELECT p.cod,
+    p.nombre_paq,
+    p.descripcion_paq,
+    COALESCE(
+        (
+            SELECT SUM(sp.costo_ser)
+            FROM ser_paq sp
+            WHERE sp.fk_paquete = p.cod
+        ),
+        0
+    ) + COALESCE(
+        (
+            SELECT SUM(hp.costo_reserva_hot)
+            FROM hot_paq hp
+            WHERE hp.fk_paquete = p.cod
+        ),
+        0
+    ) + COALESCE(
+        (
+            SELECT SUM(rp.costo_reserva_res)
+            FROM res_paq rp
+            WHERE rp.fk_paquete = p.cod
+        ),
+        0
+    ) as totalPrice,
+    p.millaje_paq,
+    (
+        SELECT COALESCE(MAX(sp.fin_ser) - MIN(sp.inicio_ser), 0)
+        FROM ser_paq sp
+        WHERE sp.fk_paquete = p.cod
+    ) as duracion
+FROM deseo d
+    JOIN paquete_turistico p ON d.fk_cod_paquete = p.cod
+WHERE d.fk_cod_usuario = p_user_id;
+END;
+$$ LANGUAGE plpgsql;
+-- =============================================
+-- Tag & Restriction Functions
+-- =============================================
+CREATE OR REPLACE PROCEDURE upsert_tag(
+        p_id INTEGER,
+        p_nombre VARCHAR,
+        p_cond1 VARCHAR,
+        p_cond_op VARCHAR,
+        p_cond2 VARCHAR,
+        p_is_restrict BOOLEAN
+    ) AS $$ BEGIN IF p_id IS NULL THEN
+INSERT INTO tag (
+        nombre_tag,
+        condicion1_tag,
+        condicional_tag,
+        condicion2_tag,
+        restriccion_tag
+    )
+VALUES (
+        p_nombre,
+        p_cond1,
+        p_cond_op,
+        p_cond2,
+        p_is_restrict
+    );
+ELSE
+UPDATE tag
+SET nombre_tag = p_nombre,
+    condicion1_tag = p_cond1,
+    condicional_tag = p_cond_op,
+    condicion2_tag = p_cond2,
+    restriccion_tag = p_is_restrict
+WHERE cod = p_id;
+END IF;
+END;
+$$ LANGUAGE plpgsql;
+CREATE OR REPLACE PROCEDURE assign_tag_to_package(
+        p_tag_id INTEGER,
+        p_package_id INTEGER
+    ) AS $$ BEGIN
+INSERT INTO tag_paq (fk_tag, fk_paquete)
+VALUES (p_tag_id, p_package_id) ON CONFLICT DO NOTHING;
+END;
+$$ LANGUAGE plpgsql;
+CREATE OR REPLACE PROCEDURE remove_all_tags_from_package(p_package_id INTEGER) AS $$ BEGIN
+DELETE FROM tag_paq
+WHERE fk_paquete = p_package_id;
+END;
+$$ LANGUAGE plpgsql;
+CREATE OR REPLACE FUNCTION get_all_tags() RETURNS TABLE (
+        p_cod INTEGER,
+        p_nombre_tag VARCHAR,
+        p_condicion1_tag VARCHAR,
+        p_condicional_tag VARCHAR,
+        p_condicion2_tag VARCHAR,
+        p_restriccion_tag BOOLEAN
+    ) AS $$ BEGIN RETURN QUERY
+SELECT cod,
+    nombre_tag::VARCHAR,
+    condicion1_tag::VARCHAR,
+    condicional_tag::VARCHAR,
+    condicion2_tag::VARCHAR,
+    restriccion_tag
+FROM tag
+ORDER BY nombre_tag;
+END;
+$$ LANGUAGE plpgsql;
+CREATE OR REPLACE FUNCTION get_package_tags(p_package_id INTEGER) RETURNS TABLE (
+        p_cod INTEGER,
+        p_nombre_tag VARCHAR,
+        p_is_restrict BOOLEAN
+    ) AS $$ BEGIN RETURN QUERY
+SELECT t.cod,
+    t.nombre_tag::VARCHAR,
+    t.restriccion_tag
+FROM tag_paq tp
+    JOIN tag t ON tp.fk_tag = t.cod
+WHERE tp.fk_paquete = p_package_id;
+END;
+$$ LANGUAGE plpgsql;
+CREATE OR REPLACE FUNCTION evaluate_tag_condition(p_user_id INTEGER, p_tag_id INTEGER) RETURNS BOOLEAN AS $$
+DECLARE u_age INTEGER;
+u_millas INTEGER;
+u_visa BOOLEAN;
+t_attr VARCHAR(255);
+t_op VARCHAR(20);
+t_val VARCHAR(255);
+BEGIN -- Get user data
+SELECT EXTRACT(
+        YEAR
+        FROM AGE(fecha_nacimiento)
+    )::INTEGER,
+    millas_acum_usu,
+    visa_usu INTO u_age,
+    u_millas,
+    u_visa
+FROM usuario
+WHERE cod = p_user_id;
+-- Get tag condition
+SELECT condicion1_tag,
+    condicional_tag,
+    condicion2_tag INTO t_attr,
+    t_op,
+    t_val
+FROM tag
+WHERE cod = p_tag_id;
+-- If not a restriction or no condition, it passes
+IF t_attr IS NULL
+OR t_attr = '' THEN RETURN TRUE;
+END IF;
+-- Evaluate
+IF t_attr = 'age' THEN CASE
+    t_op
+    WHEN '>' THEN RETURN u_age > t_val::INTEGER;
+WHEN '>=' THEN RETURN u_age >= t_val::INTEGER;
+WHEN '<' THEN RETURN u_age < t_val::INTEGER;
+WHEN '<=' THEN RETURN u_age <= t_val::INTEGER;
+WHEN '=' THEN RETURN u_age = t_val::INTEGER;
+ELSE RETURN FALSE;
+END CASE
+;
+ELSIF t_attr = 'miles' THEN CASE
+    t_op
+    WHEN '>' THEN RETURN u_millas > t_val::INTEGER;
+WHEN '>=' THEN RETURN u_millas >= t_val::INTEGER;
+WHEN '<' THEN RETURN u_millas < t_val::INTEGER;
+WHEN '<=' THEN RETURN u_millas <= t_val::INTEGER;
+WHEN '=' THEN RETURN u_millas = t_val::INTEGER;
+ELSE RETURN FALSE;
+END CASE
+;
+ELSIF t_attr = 'visa' THEN RETURN u_visa = (t_val::BOOLEAN);
+END IF;
+RETURN TRUE;
+END;
+$$ LANGUAGE plpgsql;
+CREATE OR REPLACE FUNCTION check_package_restrictions(
+        p_user_id INTEGER,
+        p_package_id INTEGER
+    ) RETURNS TABLE(failed_tag_name VARCHAR) AS $$ BEGIN RETURN QUERY
+SELECT t.nombre_tag::VARCHAR
+FROM tag_paq tp
+    JOIN tag t ON tp.fk_tag = t.cod
+WHERE tp.fk_paquete = p_package_id
+    AND t.restriccion_tag = TRUE
+    AND NOT evaluate_tag_condition(p_user_id, t.cod);
+END;
+$$ LANGUAGE plpgsql;

@@ -396,6 +396,66 @@ VALUES (
             FROM lugar
             WHERE nombre_lug = 'Estados Unidos'
         )
+    ),
+    (
+        'Princess Cruises',
+        '1965-01-01',
+        'Internacional',
+        (
+            SELECT cod_lug
+            FROM lugar
+            WHERE nombre_lug = 'Estados Unidos'
+        )
+    ),
+    (
+        'Celebrity Cruises',
+        '1988-01-01',
+        'Internacional',
+        (
+            SELECT cod_lug
+            FROM lugar
+            WHERE nombre_lug = 'Estados Unidos'
+        )
+    ),
+    (
+        'Costa Cruises',
+        '1948-01-01',
+        'Internacional',
+        (
+            SELECT cod_lug
+            FROM lugar
+            WHERE nombre_lug = 'Italia'
+        )
+    ),
+    (
+        'Holland America Line',
+        '1873-01-01',
+        'Internacional',
+        (
+            SELECT cod_lug
+            FROM lugar
+            WHERE nombre_lug = 'Estados Unidos'
+        )
+    ),
+    (
+        'Disney Cruise Line',
+        '1996-01-01',
+        'Internacional',
+        (
+            SELECT cod_lug
+            FROM lugar
+            WHERE nombre_lug = 'Estados Unidos'
+        )
+    ),
+    (
+        'Viking Ocean Cruises',
+        '2015-01-01',
+        'Internacional',
+        (
+            SELECT cod_lug
+            FROM lugar
+            WHERE nombre_lug = 'Alemania'
+        )
     );
 -- Terrestre (Alquiler de Vehículos)
 INSERT INTO terrestre (nombre, f_inicio_servicio_prov, fk_cod_lug)
@@ -469,6 +529,24 @@ VALUES (
             SELECT cod_lug
             FROM lugar
             WHERE nombre_lug = 'Brasil'
+        )
+    ),
+    (
+        'National Car Rental',
+        '1947-01-01',
+        (
+            SELECT cod_lug
+            FROM lugar
+            WHERE nombre_lug = 'Estados Unidos'
+        )
+    ),
+    (
+        'Thrifty Car Rental',
+        '1958-01-01',
+        (
+            SELECT cod_lug
+            FROM lugar
+            WHERE nombre_lug = 'Estados Unidos'
         )
     );
 -- Turístico (Operadores de Tours)
@@ -557,6 +635,26 @@ VALUES (
             FROM lugar
             WHERE nombre_lug = 'Europa'
         )
+    ),
+    (
+        'Adventure World',
+        '1998-01-01',
+        'Aventura',
+        (
+            SELECT cod_lug
+            FROM lugar
+            WHERE nombre_lug = 'Australia'
+        )
+    ),
+    (
+        'City Sightseeing',
+        '1999-01-01',
+        'Cultural',
+        (
+            SELECT cod_lug
+            FROM lugar
+            WHERE nombre_lug = 'España'
+        )
     );
 INSERT INTO hotel (nombre_hot, direccion_hot, tipo_hot, fk_cod_lug) (
         SELECT 'Hotel Gran ' || nombre_lug,
@@ -632,7 +730,7 @@ SELECT 3000,
         ORDER BY random()
         LIMIT 1
     )
-FROM generate_series(1, 5);
+FROM generate_series(1, 10);
 -- Cada agencia de alquiler tiene vehiculos
 INSERT INTO vehiculo (capacidad_tra, nombre_tra, fk_cod_terrestre)
 SELECT (ARRAY [4, 5, 7]) [floor(random()*3)+1],
@@ -656,7 +754,12 @@ VALUES ('Administrador'),
     ('Cliente'),
     ('Proveedor'),
     ('Auditor'),
-    ('Agente');
+    ('Agente'),
+    ('Analista'),
+    ('Gerente'),
+    ('Operador'),
+    ('Soporte'),
+    ('Ventas');
 DO $$
 DECLARE estado RECORD;
 i INT;
@@ -746,7 +849,15 @@ VALUES ('USD', 45.5, NOW()),
 -- =============================================
 INSERT INTO plan_pago (nombre_pla, porcen_inicial, frecuencia_pago)
 VALUES ('Contado', 100, 'Unica'),
-    ('Credito', 30, 'Mensual');
+    ('Credito', 30, 'Mensual'),
+    ('Trimestral', 25, 'Trimestral'),
+    ('Semestral', 50, 'Semestral'),
+    ('Anual', 10, 'Mensual'),
+    ('Flash Deal', 90, 'Unica'),
+    ('Vencedor', 40, 'Quincenal'),
+    ('Standard', 20, 'Mensual'),
+    ('Premium', 15, 'Mensual'),
+    ('Eco-Flex', 5, 'Semanal');
 -- 7.1 Vuelos (Flights)
 INSERT INTO servicio (
         nombre_ser,
@@ -1228,6 +1339,45 @@ VALUES ('Ventana'),
     ('Vista al Mar'),
     ('Cama King'),
     ('Transporte Privado');
+-- Generate pre_usu (at least 10)
+INSERT INTO pre_usu (fk_preferencia, fk_usuario)
+SELECT cod,
+    (
+        SELECT cod
+        FROM usuario
+        ORDER BY random()
+        LIMIT 1
+    )
+FROM preferencia
+LIMIT 10;
+-- Generate tag_paq and tag_usu (at least 10 each)
+INSERT INTO tag_paq (fk_tag, fk_paquete)
+SELECT t.cod,
+    p.cod
+FROM tag t
+    CROSS JOIN (
+        SELECT cod
+        FROM paquete_turistico
+        LIMIT 2
+    ) p
+LIMIT 15;
+INSERT INTO tag_usu (fk_tag, fk_usuario)
+SELECT t.cod,
+    u.cod
+FROM tag t
+    CROSS JOIN (
+        SELECT cod
+        FROM usuario
+        LIMIT 2
+    ) u
+LIMIT 15;
+-- Generate paq_paq (Package composition, at least 10)
+INSERT INTO paq_paq (fk_paquete_padre, fk_paquete_hijo)
+SELECT p1.cod,
+    p2.cod
+FROM paquete_turistico p1
+    JOIN paquete_turistico p2 ON p1.cod < p2.cod
+LIMIT 12;
 INSERT INTO telefono (cod_area_tel, numero_tel, tipo_tel, fk_cod_aer)
 SELECT '0414',
     floor(random() * 9000000) + 1000000,
