@@ -36,13 +36,12 @@ export function AirlineManagement() {
     name: '',
     originType: 'Internacional' as 'Nacional' | 'Internacional',
     fkLug: 0,
-    fkLug: 0,
   });
 
   const [selectedOriginCountry, setSelectedOriginCountry] = useState<number>(0); // Triggers city load
 
   const [contactNumbers, setContactNumbers] = useState<ContactNumber[]>([
-    { id: 1, countryCode: '', number: '', type: 'Office' as 'Office' | 'Fax' },
+    { id: 1, countryCode: '', number: '', type: 'Oficina' as any },
   ]);
 
   const [airlines, setAirlines] = useState<Airline[]>([]);
@@ -134,7 +133,7 @@ export function AirlineManagement() {
   const handleAddNew = () => {
     setEditingAirline(null);
     setFormData({ name: '', originType: 'Internacional', fkLug: 0 });
-    setContactNumbers([{ id: 1, countryCode: '', number: '', type: 'Oficina' }]);
+    setContactNumbers([{ id: 1, countryCode: '', number: '', type: 'Oficina' as any }]);
     setIsModalOpen(true);
   };
 
@@ -197,7 +196,9 @@ export function AirlineManagement() {
       // Find the airline we just created/updated by name
       const allAirlines = await getAllAirlines();
       // Defensive check to avoid crash if finding fails
-      const savedAirline = allAirlines.find((a: any) => a.nombre === formData.name || a.p_nombre === formData.name);
+      const savedAirline = allAirlines.find((a: any) =>
+        String(a.name || a.nombre || a.p_nombre).trim().toLowerCase() === formData.name.trim().toLowerCase()
+      );
 
       if (savedAirline) {
         const airlineId = String(savedAirline.id || savedAirline.cod || savedAirline.p_cod);
@@ -238,7 +239,7 @@ export function AirlineManagement() {
     const newId = Math.max(...contactNumbers.map(c => c.id), 0) + 1;
     setContactNumbers([
       ...contactNumbers,
-      { id: newId, countryCode: '', number: '', type: 'Office' },
+      { id: newId, countryCode: '', number: '', type: 'Oficina' as any },
     ]);
   };
 

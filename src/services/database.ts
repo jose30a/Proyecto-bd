@@ -35,27 +35,30 @@ export async function authenticateUser(credentials: LoginCredentials): Promise<U
     throw new Error('Invalid email or password');
   }
 
-  const user = result[0];
+  const user = result[0] as any;
 
   // Compute full name and role for convenience
-  user.fullName = [
-    user.p_primer_nombre_usu,
-    user.p_segundo_nombre_usu,
-    user.p_primer_apellido_usu,
-    user.p_segundo_apellido_usu
+  const mappedUser: User = {
+    cod: user.p_cod || user.cod,
+    email_usu: user.p_email_usu || user.email_usu,
+    primer_nombre_usu: user.p_primer_nombre_usu || user.primer_nombre_usu,
+    segundo_nombre_usu: user.p_segundo_nombre_usu || user.segundo_nombre_usu,
+    primer_apellido_usu: user.p_primer_apellido_usu || user.primer_apellido_usu,
+    segundo_apellido_usu: user.p_segundo_apellido_usu || user.segundo_apellido_usu,
+    nombre_rol: user.p_nombre_rol || user.nombre_rol,
+    fk_cod_rol: user.p_fk_cod_rol || user.fk_cod_rol,
+  };
+
+  mappedUser.fullName = [
+    mappedUser.primer_nombre_usu,
+    mappedUser.segundo_nombre_usu,
+    mappedUser.primer_apellido_usu,
+    mappedUser.segundo_apellido_usu
   ].filter(Boolean).join(' ');
 
-  user.role = user.p_nombre_rol;
-  user.cod = user.p_cod;
-  user.email_usu = user.p_email_usu;
-  user.primer_nombre_usu = user.p_primer_nombre_usu;
-  user.segundo_nombre_usu = user.p_segundo_nombre_usu;
-  user.primer_apellido_usu = user.p_primer_apellido_usu;
-  user.segundo_apellido_usu = user.p_segundo_apellido_usu;
-  user.nombre_rol = user.p_nombre_rol;
-  user.fk_cod_rol = user.p_fk_cod_rol;
+  mappedUser.role = mappedUser.nombre_rol;
 
-  return user;
+  return mappedUser;
 }
 
 /**
@@ -69,27 +72,30 @@ export async function getUserById(userId: number): Promise<User> {
     throw new Error('User not found');
   }
 
-  const user = result[0];
+  const user = result[0] as any;
 
   // Compute full name and role for convenience
-  user.fullName = [
-    user.p_primer_nombre_usu,
-    user.p_segundo_nombre_usu,
-    user.p_primer_apellido_usu,
-    user.p_segundo_apellido_usu
+  const mappedUser: User = {
+    cod: user.p_cod || user.cod,
+    email_usu: user.p_email_usu || user.email_usu,
+    primer_nombre_usu: user.p_primer_nombre_usu || user.primer_nombre_usu,
+    segundo_nombre_usu: user.p_segundo_nombre_usu || user.segundo_nombre_usu,
+    primer_apellido_usu: user.p_primer_apellido_usu || user.primer_apellido_usu,
+    segundo_apellido_usu: user.p_segundo_apellido_usu || user.segundo_apellido_usu,
+    nombre_rol: user.p_nombre_rol || user.nombre_rol,
+    fk_cod_rol: user.p_fk_cod_rol || user.fk_cod_rol,
+  };
+
+  mappedUser.fullName = [
+    mappedUser.primer_nombre_usu,
+    mappedUser.segundo_nombre_usu,
+    mappedUser.primer_apellido_usu,
+    mappedUser.segundo_apellido_usu
   ].filter(Boolean).join(' ');
 
-  user.role = user.p_nombre_rol;
-  user.cod = user.p_cod;
-  user.email_usu = user.p_email_usu;
-  user.primer_nombre_usu = user.p_primer_nombre_usu;
-  user.segundo_nombre_usu = user.p_segundo_nombre_usu;
-  user.primer_apellido_usu = user.p_primer_apellido_usu;
-  user.segundo_apellido_usu = user.p_segundo_apellido_usu;
-  user.nombre_rol = user.p_nombre_rol;
-  user.fk_cod_rol = user.p_fk_cod_rol;
+  mappedUser.role = mappedUser.nombre_rol;
 
-  return user;
+  return mappedUser;
 }
 
 /**
@@ -310,21 +316,21 @@ export async function getAirlineContacts(airlineId: number): Promise<ContactNumb
  */
 export async function getCountries(): Promise<{ cod_lug: number; nombre_lug: string }[]> {
   // Use generic API handler for function calls
-  return callFunction<{ cod_lug: number; nombre_lug: string }[]>('get_countries', []);
+  return callFunction<{ cod_lug: number; nombre_lug: string }>('get_countries', []);
 }
 
 export async function getCities(countryId: number): Promise<{ cod_lug: number; nombre_lug: string }[]> {
-  return callFunction<{ cod_lug: number; nombre_lug: string }[]>('get_cities', [countryId]);
+  return callFunction<{ cod_lug: number; nombre_lug: string }>('get_cities', [countryId]);
 }
 
 export async function upsertAirline(airline: Partial<Airline> & { name: string; origin_type?: string; fk_lug?: number }): Promise<void> {
   return callProcedure(
     'upsert_airline',
     [
-      airline.id ? parseInt(airline.id) : null,
-      airline.name,
-      airline.origin_type || 'Internacional',
-      airline.fk_lug || null,
+      { value: airline.id ? parseInt(airline.id) : null, type: 'INTEGER' },
+      { value: airline.name, type: 'VARCHAR' },
+      { value: airline.origin_type || 'Internacional', type: 'VARCHAR' },
+      { value: airline.fk_lug || null, type: 'INTEGER' },
     ]
   );
 }
@@ -334,7 +340,7 @@ export async function upsertAirline(airline: Partial<Airline> & { name: string; 
  * Calls stored procedure: delete_airline(airline_id)
  */
 export async function deleteAirline(airlineId: string): Promise<void> {
-  return callProcedure('delete_airline', [airlineId]);
+  return callProcedure('delete_airline', [{ value: parseInt(airlineId), type: 'INTEGER' }]);
 }
 
 /**
@@ -349,9 +355,9 @@ export async function upsertContactNumber(
     [
       { value: contact.id || null, type: 'INTEGER' },
       { value: parseInt(contact.airline_id) || null, type: 'INTEGER' },
-      contact.country_code,
-      contact.number,
-      contact.type || 'Office',
+      { value: contact.country_code, type: 'VARCHAR' },
+      { value: contact.number, type: 'VARCHAR' },
+      { value: contact.type || 'Oficina', type: 'VARCHAR' },
     ]
   );
 }
@@ -765,7 +771,8 @@ export async function processPayment(
     { value: null, type: 'VARCHAR' }, // zelle_email
     { value: null, type: 'VARCHAR' }, // zelle_phone
     { value: null, type: 'VARCHAR' }, // cedula
-    { value: null, type: 'VARCHAR' }  // phone_number
+    { value: null, type: 'VARCHAR' }, // phone_number
+    { value: details.usdtWallet || null, type: 'VARCHAR' } // p_usdt_id (ADDED: Using usdtWallet as ID if usdt_id not explicit)
   ]);
 }
 
