@@ -731,10 +731,19 @@ SELECT 'service'::VARCHAR AS item_type,
     COALESCE(s.nombre_ser, 'Unknown Service')::VARCHAR AS item_name,
     sp.inicio_ser AS inicio,
     sp.fin_ser AS fin,
-    sp.costo_ser AS costo,
+    -- Dynamic Price Calculation: Apply discount if active promotion exists
+    CASE
+        WHEN p.porcen_descuento IS NOT NULL THEN sp.costo_ser * (1 - (p.porcen_descuento / 100))
+        ELSE sp.costo_ser
+    END AS costo,
     sp.millaje_ser AS millaje
 FROM ser_paq sp
-    LEFT JOIN servicio s ON sp.fk_servicio = s.cod
+    LEFT JOIN servicio s ON sp.fk_servicio = s.cod -- Join with promotions to check for active discounts
+    LEFT JOIN pro_ser ps ON s.cod = ps.fk_servicio
+    AND sp.inicio_ser >= ps.fecha_inicio
+    AND sp.fin_ser <= ps.fecha_fin
+    LEFT JOIN promocion p ON ps.fk_promocion = p.cod
+    AND p.porcen_descuento > 0
 WHERE sp.fk_paquete = p_package_id
 UNION ALL
 -- Get hotels from hot_paq
@@ -909,6 +918,16 @@ WHERE cod = v_id;
 END IF;
 END;
 $$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE PROCEDURE upsert_promotion(
+        p_id INTEGER,
+        p_tipo TEXT,
+        p_discount INTEGER
+    ) AS $$
+BEGIN
+    CALL upsert_promotion(p_id::TEXT, p_tipo, p_discount);
+END;
+$$ LANGUAGE plpgsql;
 DROP PROCEDURE IF EXISTS delete_promotion(INTEGER) CASCADE;
 CREATE OR REPLACE PROCEDURE delete_promotion(p_id INTEGER) AS $$ BEGIN -- First delete all promotion-service associations
 DELETE FROM pro_ser
@@ -991,6 +1010,13 @@ ORDER BY l.nombre_lug;
 END;
 $$ LANGUAGE plpgsql;
 -- =============================================
+-- Upsert Airline (Refactored)
+-- =============================================
+DROP PROCEDURE IF EXISTS upsert_airline(INTEGER, VARCHAR, VARCHAR, INTEGER, VARCHAR) CASCADE;
+DROP PROCEDURE IF EXISTS upsert_airline(INTEGER, VARCHAR, DATE, VARCHAR, INTEGER) CASCADE;
+DROP PROCEDURE IF EXISTS upsert_airline(TEXT, VARCHAR, VARCHAR, INTEGER, VARCHAR) CASCADE;
+DROP PROCEDURE IF EXISTS upsert_airline(TEXT, VARCHAR, VARCHAR, INTEGER, VARCHAR, VARCHAR, VARCHAR, VARCHAR) CASCADE;
+CREATE OR REPLACE PROCEDURE upsert_airline(
 DROP ROUTINE IF EXISTS upsert_airline(INTEGER, VARCHAR, VARCHAR, VARCHAR, VARCHAR) CASCADE;
 DROP ROUTINE IF EXISTS upsert_airline(INTEGER, VARCHAR, DATE, VARCHAR, INTEGER) CASCADE;
 DROP ROUTINE IF EXISTS upsert_airline(TEXT, VARCHAR, VARCHAR, INTEGER, VARCHAR) CASCADE;
@@ -1014,7 +1040,7 @@ CREATE OR REPLACE FUNCTION upsert_airline(
         p_name VARCHAR,
         p_origin_type VARCHAR,
         p_fk_lug INTEGER
-    ) RETURNS INTEGER AS $$
+    ) AS $$
 DECLARE v_id INTEGER;
 BEGIN -- Handle p_id as TEXT
 IF p_id IS NULL
@@ -1047,6 +1073,17 @@ END IF;
 RETURN v_id;
 END;
 $$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE PROCEDURE upsert_airline(
+        p_id INTEGER,
+        p_name VARCHAR,
+        p_origin_type VARCHAR,
+        p_fk_lug INTEGER
+    ) AS $$
+BEGIN
+    CALL upsert_airline(p_id::TEXT, p_name, p_origin_type, p_fk_lug);
+END;
+$$ LANGUAGE plpgsql;
 DROP PROCEDURE IF EXISTS delete_airline(INTEGER) CASCADE;
 CREATE OR REPLACE PROCEDURE delete_airline(p_id INTEGER) AS $$ BEGIN -- First delete all airline-service associations
 DELETE FROM ser_aer
@@ -1057,6 +1094,13 @@ WHERE fk_cod_aer = p_id;
 -- Then delete the airline itself
 DELETE FROM aerolinea
 WHERE cod = p_id;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE PROCEDURE delete_airline(p_id TEXT) AS $$
+BEGIN
+    -- Cast to integer and call the main procedure
+    CALL delete_airline(p_id::INTEGER);
 END;
 $$ LANGUAGE plpgsql;
 DROP PROCEDURE IF EXISTS upsert_contact_number(INTEGER, INTEGER, VARCHAR, VARCHAR, VARCHAR) CASCADE;
@@ -1368,6 +1412,19 @@ END IF;
 -- Default Logic for Cost/Mileage (Business Logic)
 v_cost := 100 + floor(random() * 400);
 v_millaje := 100;
+-- Check for active promotion and apply discount
+DECLARE v_discount DECIMAL;
+BEGIN
+SELECT p.porcen_descuento INTO v_discount
+FROM promocion p
+    JOIN pro_ser ps ON p.cod = ps.fk_promocion
+WHERE ps.fk_servicio = p_item_id
+    AND p_start_date >= ps.fecha_inicio
+    AND p_start_date <= ps.fecha_fin
+LIMIT 1;
+IF v_discount IS NOT NULL THEN v_cost := v_cost * (1 - (v_discount / 100));
+END IF;
+END;
 -- Flat mileage reward
 INSERT INTO ser_paq (
         fk_servicio,
@@ -2192,7 +2249,7 @@ CREATE OR REPLACE PROCEDURE assign_promotion_to_service(
         FROM pro_ser
         WHERE fk_promocion = p_promotion_id
             AND fk_servicio = p_service_id
-    ) THEN
+    ) THEN -- Update dates if it exists
 UPDATE pro_ser
 SET fecha_inicio = p_start_date,
     fecha_fin = p_end_date
