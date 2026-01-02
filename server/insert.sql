@@ -638,10 +638,15 @@ INSERT INTO vehiculo (capacidad_tra, nombre_tra, fk_cod_terrestre)
 SELECT (ARRAY [4, 5, 7]) [floor(random()*3)+1],
     (
         ARRAY ['Toyota Corolla', 'Ford Explorer', 'Chevrolet Aveo', 'Nissan Sentra']
-    ) [floor(random()*4)+1] || ' #' || generate_series || ' (Agencia ' || t.cod || ')',
+    ) [floor(random()*4)+1] || ' #' || (
+        row_number() OVER (
+            ORDER BY t.cod,
+                g
+        )
+    ),
     t.cod
 FROM terrestre t
-    CROSS JOIN generate_series(1, 5);
+    CROSS JOIN generate_series(1, 5) AS g;
 -- 5 cars per agency
 -- =============================================
 -- 5. USUARIOS
