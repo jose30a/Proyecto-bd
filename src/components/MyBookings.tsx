@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Calendar, MapPin, Package, Clock, CreditCard, ChevronRight, AlertCircle, ShoppingBag, Star, Trash2, DollarSign, Eye, Users, Plane, X, User, Plus } from 'lucide-react';
 import { ImageWithFallback } from './figma/ImageWithFallback';
-import { getUserBookings, getCurrentUser, toggleWishlist, getWishlist, addPassengersToBooking, processPayment, getPackageDetails, submitReview, PackageDetailItem } from '../services/database';
+import { getUserBookings, getCurrentUser, toggleWishlist, getWishlist, addPassengersToBooking, processPayment, getPackageDetails, submitReview, PackageDetailItem, cancelPackage } from '../services/database';
 
 type BookingStatus = 'Confirmed' | 'Pending Payment' | 'Cancelled';
 
@@ -96,6 +96,11 @@ export function MyBookings() {
     selectedItem: 'package' as string // 'package' or 'service:ID' or 'hotel:ID'
   });
   const [submittingRating, setSubmittingRating] = useState(false);
+
+  // Cancellation modal state
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelBooking, setCancelBooking] = useState<Booking | null>(null);
+  const [cancellingBooking, setCancellingBooking] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -356,6 +361,34 @@ export function MyBookings() {
     return startDate <= now;
   };
 
+  const handleCancelBooking = async () => {
+    if (!cancelBooking || !user) return;
+
+    try {
+      setCancellingBooking(true);
+      const result = await cancelPackage(cancelBooking.id, user.cod);
+
+      alert(`
+Reservation cancelled successfully!
+
+Original Amount: $${result.original_amount.toLocaleString()}
+Penalty (10%): $${result.penalty_amount.toLocaleString()}
+Refund Amount: $${result.refund_amount.toLocaleString()}
+
+The refund will be processed to your original payment method within 5-7 business days.
+      `);
+
+      setShowCancelModal(false);
+      setCancelBooking(null);
+      await loadBookings(); // Refresh bookings list
+    } catch (error) {
+      console.error('Failed to cancel booking:', error);
+      alert(`Failed to cancel reservation: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setCancellingBooking(false);
+    }
+  };
+
   return (
     <div>
       {/* Header */}
@@ -517,12 +550,22 @@ export function MyBookings() {
                     {canRateBooking(booking) && (
                       <button
                         onClick={() => handleRateNow(booking)}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md transition-colors text-sm font-medium shadow-sm"
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-[#EA580C] hover:bg-[#C2410C] text-white rounded-md transition-colors text-sm font-medium shadow-sm"
                       >
                         <Star className="w-4 h-4 fill-white" />
                         Rate Trip
                       </button>
                     )}
+                    <button
+                      onClick={() => {
+                        setCancelBooking(booking);
+                        setShowCancelModal(true);
+                      }}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md transition-colors text-sm font-medium shadow-sm"
+                    >
+                      <X className="w-4 h-4" />
+                      Cancel Trip
+                    </button>
                   </div>
                 )}
               </div>
@@ -950,6 +993,87 @@ export function MyBookings() {
               >
                 <CreditCard className="w-5 h-5" />
                 Complete Payment ${selectedBooking.totalPrice.toLocaleString()}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cancellation Modal */}
+      {showCancelModal && cancelBooking && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-[var(--color-card)] rounded-lg max-w-md w-full p-6 shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-[var(--color-text-primary)]">Cancel Reservation?</h3>
+              <button
+                onClick={() => setShowCancelModal(false)}
+                className="p-2 hover:bg-[var(--color-background)] rounded-md transition-colors"
+                disabled={cancellingBooking}
+              >
+                <X className="w-5 h-5 text-[var(--color-text-secondary)]" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <p className="text-[var(--color-text-secondary)] mb-4">
+              Are you sure you want to cancel: <strong className="text-[var(--color-text-primary)]">{cancelBooking.packageName}</strong>?
+            </p>
+
+            {/* Cancellation Policy */}
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+              <div className="flex items-start gap-2 mb-2">
+                <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-semibold text-yellow-800 mb-2">Cancellation Policy</p>
+                  <ul className="text-sm text-yellow-700 space-y-1">
+                    <li>• 10% administrative penalty will be applied</li>
+                    <li>• 90% will be refunded to your account</li>
+                  </ul>
+                </div>
+              </div>
+
+              <div className="mt-3 pt-3 border-t border-yellow-300 text-sm text-yellow-800 space-y-1">
+                <div className="flex justify-between">
+                  <span>Original Amount:</span>
+                  <span className="font-semibold">${cancelBooking.totalPrice.toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-red-700">
+                  <span>Penalty (10%):</span>
+                  <span className="font-semibold">-${(cancelBooking.totalPrice * 0.1).toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between text-green-700 font-bold text-base pt-2 border-t border-yellow-300">
+                  <span>Refund Amount:</span>
+                  <span>${(cancelBooking.totalPrice * 0.9).toLocaleString()}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowCancelModal(false)}
+                disabled={cancellingBooking}
+                className="flex-1 px-4 py-2 border border-[var(--color-border)] text-[var(--color-text-primary)] rounded-md hover:bg-[var(--color-background)] transition-colors disabled:opacity-50"
+              >
+                Keep Reservation
+              </button>
+              <button
+                onClick={handleCancelBooking}
+                disabled={cancellingBooking}
+                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {cancellingBooking ? (
+                  <>
+                    <Clock className="w-4 h-4 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <X className="w-4 h-4" />
+                    Confirm Cancellation
+                  </>
+                )}
               </button>
             </div>
           </div>
