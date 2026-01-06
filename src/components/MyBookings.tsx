@@ -550,7 +550,7 @@ The refund will be processed to your original payment method within 5-7 business
                     {canRateBooking(booking) && (
                       <button
                         onClick={() => handleRateNow(booking)}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-[#EA580C] hover:bg-[#C2410C] text-white rounded-md transition-colors text-sm font-medium shadow-sm"
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-[#EA580C] hover:bg-[#C2410C] text-black rounded-md transition-colors text-sm font-medium shadow-sm"
                       >
                         <Star className="w-4 h-4 fill-white" />
                         Rate Trip
@@ -561,7 +561,7 @@ The refund will be processed to your original payment method within 5-7 business
                         setCancelBooking(booking);
                         setShowCancelModal(true);
                       }}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md transition-colors text-sm font-medium shadow-sm"
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-black rounded-md transition-colors text-sm font-medium shadow-sm"
                     >
                       <X className="w-4 h-4" />
                       Cancel Trip
@@ -1061,7 +1061,7 @@ The refund will be processed to your original payment method within 5-7 business
               <button
                 onClick={handleCancelBooking}
                 disabled={cancellingBooking}
-                className="flex-1 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                className="flex-1 px-4 py-2 bg-red-600 text-black rounded-md hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {cancellingBooking ? (
                   <>
