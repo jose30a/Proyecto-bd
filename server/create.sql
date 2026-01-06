@@ -2457,3 +2457,125 @@ WHERE tp.fk_paquete = p_package_id
     AND NOT evaluate_tag_condition(p_user_id, t.cod);
 END;
 $$ LANGUAGE plpgsql;
+-- =============================================
+-- Trip Cancellation with Refund
+-- =============================================
+CREATE OR REPLACE FUNCTION cancel_package_with_refund(
+    p_package_id INTEGER,
+    p_user_id INTEGER
+) RETURNS TABLE (
+    refund_amount DECIMAL,
+    penalty_amount DECIMAL,
+    original_amount DECIMAL,
+    previous_status VARCHAR
+) AS $$
+DECLARE
+    v_total_paid DECIMAL := 0;
+    v_refund DECIMAL;
+    v_penalty DECIMAL;
+    v_current_status VARCHAR;
+    v_package_owner INTEGER;
+BEGIN
+    -- 1. Verify package exists and belongs to the user
+    SELECT estado_paq, fk_cod_usuario INTO v_current_status, v_package_owner
+    FROM paquete_turistico
+    WHERE cod = p_package_id;
+    
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'Package with ID % not found', p_package_id;
+    END IF;
+    
+    IF v_package_owner IS NULL OR v_package_owner != p_user_id THEN
+        RAISE EXCEPTION 'Package does not belong to user %', p_user_id;
+    END IF;
+    
+    IF v_current_status = 'Cancelled' THEN
+        RAISE EXCEPTION 'Package is already cancelled';
+    END IF;
+    
+    -- 2. Calculate total amount paid for this package
+    SELECT COALESCE(SUM(monto_pago), 0) INTO v_total_paid
+    FROM pago
+    WHERE fk_cod_paquete = p_package_id
+      AND monto_pago > 0; -- Only positive payments (exclude refunds)
+    
+    -- If no payments found, still allow cancellation but with 0 refund
+    IF v_total_paid <= 0 THEN
+        v_total_paid := 0;
+        v_penalty := 0;
+        v_refund := 0;
+    ELSE
+        -- 3. Calculate penalty (10%) and refund (90%)
+        v_penalty := v_total_paid * 0.10;
+        v_refund := v_total_paid * 0.90;
+    END IF;
+    
+    -- 4. Update package status to Cancelled
+    UPDATE paquete_turistico
+    SET estado_paq = 'Cancelled',
+        fecha_cancelacion = CURRENT_DATE
+    WHERE cod = p_package_id;
+    
+    -- 5. Record refund transaction (if applicable)
+    IF v_refund > 0 THEN
+        -- Create a payment method record for the refund (reusing existing or creating generic)
+        -- For simplicity, we'll create a refund entry without a full payment method
+        -- In production, you might want to track which original payment method to refund to
+        
+        INSERT INTO metodoDePago (
+            descripcion_met,
+            fk_usuario,
+            tipoMetodo
+        ) VALUES (
+            'Refund - Pkg #' || p_package_id,
+            p_user_id,
+            'Zelle' -- Refund method (short enough for VARCHAR(20))
+        );
+        
+        -- Insert refund payment (negative amount indicates refund)
+        INSERT INTO pago (
+            monto_pago,
+            fecha_pago,
+            fk_cod_paquete,
+            fk_metodo_pago
+        ) VALUES (
+            -v_refund, -- Negative to indicate money going out
+            CURRENT_TIMESTAMP,
+            p_package_id,
+            currval('metododepago_cod_seq') -- Get the ID of the payment method just inserted
+        );
+    END IF;
+    
+    -- 6. Record penalty transaction (if applicable)
+    IF v_penalty > 0 THEN
+        INSERT INTO metodoDePago (
+            descripcion_met,
+            fk_usuario,
+            tipoMetodo
+        ) VALUES (
+            'Penalty - Pkg #' || p_package_id,
+            p_user_id,
+            'Milla' -- Internal accounting
+        );
+        
+        INSERT INTO pago (
+            monto_pago,
+            fecha_pago,
+            fk_cod_paquete,
+            fk_metodo_pago
+        ) VALUES (
+            v_penalty,
+            CURRENT_TIMESTAMP,
+            p_package_id,
+            currval('metododepago_cod_seq')
+        );
+    END IF;
+    
+    -- 7. Return details
+    RETURN QUERY SELECT 
+        v_refund, 
+        v_penalty, 
+        v_total_paid,
+        v_current_status;
+END;
+$$ LANGUAGE plpgsql;

@@ -950,3 +950,35 @@ export async function addPassengersToBooking(
     ]);
   }
 }
+
+/**
+ * Cancel a package and process refund (90% refund, 10% penalty)
+ * Calls function: cancel_package_with_refund(package_id, user_id)
+ */
+export interface CancellationResult {
+  refund_amount: number;
+  penalty_amount: number;
+  original_amount: number;
+  previous_status: string;
+}
+
+export async function cancelPackage(
+  packageId: number,
+  userId: number
+): Promise<CancellationResult> {
+  const result = await callFunction<any>('cancel_package_with_refund', [
+    { value: packageId, type: 'INTEGER' },
+    { value: userId, type: 'INTEGER' }
+  ]);
+
+  if (!result || result.length === 0) {
+    throw new Error('Failed to cancel package');
+  }
+
+  return {
+    refund_amount: parseFloat(result[0].refund_amount || 0),
+    penalty_amount: parseFloat(result[0].penalty_amount || 0),
+    original_amount: parseFloat(result[0].original_amount || 0),
+    previous_status: result[0].previous_status || 'Unknown'
+  };
+}
