@@ -426,8 +426,9 @@ export async function deletePackage(packageId: number): Promise<void> {
  * Get package composition: services, hotels, restaurants
  */
 export interface PackageDetailItem {
-  item_type: 'service' | 'hotel' | 'restaurant';
+  item_type: 'service' | 'hotel' | 'restaurant' | 'package';
   item_id: number;
+  instance_id?: number; // The ID in the join table (ser_paq, hot_paq, etc.)
   item_name: string;
   inicio?: string | null;
   fin?: string | null;
@@ -465,12 +466,33 @@ export async function getPackageDetails(packageId: number): Promise<PackageDetai
   return rows.map((r: any) => ({
     item_type: r.item_type,
     item_id: r.item_id,
+    instance_id: r.instance_id,
     item_name: r.item_name,
     inicio: r.inicio || null,
     fin: r.fin || null,
     costo: r.costo ? Number(r.costo) : 0,
     millaje: r.millaje || 0,
   }));
+}
+
+export async function submitReview(data: {
+  description: string;
+  rating: number;
+  userId: number;
+  packageId?: number;
+  serPaqId?: number;
+  hotelId?: number;
+  lugarId?: number;
+}): Promise<void> {
+  await callProcedure('submit_review', [
+    data.description,
+    data.rating,
+    { value: data.userId, type: 'INTEGER' },
+    { value: data.packageId || null, type: 'INTEGER' },
+    { value: data.serPaqId || null, type: 'INTEGER' },
+    { value: data.hotelId || null, type: 'INTEGER' },
+    { value: data.lugarId || null, type: 'INTEGER' }
+  ]);
 }
 
 // ==================== Promotions ====================

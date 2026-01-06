@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Calendar, MapPin, Package, Clock, CreditCard, ChevronRight, AlertCircle, ShoppingBag, Star, Trash2, DollarSign, Eye, Users, Plane, X, User, Plus } from 'lucide-react';
 import { ImageWithFallback } from './figma/ImageWithFallback';
-import { getUserBookings, getCurrentUser, toggleWishlist, getWishlist, addPassengersToBooking, processPayment } from '../services/database';
+import { getUserBookings, getCurrentUser, toggleWishlist, getWishlist, addPassengersToBooking, processPayment, getPackageDetails, submitReview, PackageDetailItem } from '../services/database';
 
 type BookingStatus = 'Confirmed' | 'Pending Payment' | 'Cancelled';
 
@@ -85,6 +85,17 @@ export function MyBookings() {
   const [paymentDetails, setPaymentDetails] = useState<PaymentDetails>({
     method: 'TarjetaCreditoDebito',
   });
+
+  // Rating modal state
+  const [showRatingModal, setShowRatingModal] = useState(false);
+  const [ratingBooking, setRatingBooking] = useState<Booking | null>(null);
+  const [packageItems, setPackageItems] = useState<PackageDetailItem[]>([]);
+  const [ratingDetails, setRatingDetails] = useState({
+    rating: 5,
+    description: '',
+    selectedItem: 'package' as string // 'package' or 'service:ID' or 'hotel:ID'
+  });
+  const [submittingRating, setSubmittingRating] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -281,6 +292,70 @@ export function MyBookings() {
     }
   };
 
+  const handleRateNow = async (booking: Booking) => {
+    try {
+      setRatingBooking(booking);
+      setShowRatingModal(true);
+      setLoading(true);
+      const items = await getPackageDetails(booking.id);
+      setPackageItems(items);
+      setRatingDetails({
+        rating: 5,
+        description: '',
+        selectedItem: 'package'
+      });
+    } catch (err) {
+      console.error('Failed to load package details for rating', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSubmitReview = async () => {
+    if (!ratingBooking || !user) return;
+    if (!ratingDetails.description.trim()) {
+      alert('Please provide a comment');
+      return;
+    }
+
+    try {
+      setSubmittingRating(true);
+
+      const [type, id] = ratingDetails.selectedItem.split(':');
+      const reviewData: any = {
+        description: ratingDetails.description,
+        rating: ratingDetails.rating,
+        userId: user.cod
+      };
+
+      if (type === 'package' || !type) {
+        reviewData.packageId = ratingBooking.id;
+      } else if (type === 'service') {
+        reviewData.serPaqId = parseInt(id);
+      } else if (type === 'hotel') {
+        reviewData.hotelId = parseInt(id);
+      }
+
+      await submitReview(reviewData);
+      alert('Review submitted successfully! Thank you for your feedback.');
+      setShowRatingModal(false);
+    } catch (err) {
+      console.error('Failed to submit review', err);
+      alert('Failed to submit review. Please try again.');
+    } finally {
+      setSubmittingRating(false);
+    }
+  };
+
+  const canRateBooking = (booking: Booking): boolean => {
+    if (booking.status !== 'Confirmed') return false;
+    if (!booking.startDate) return true; // If no date, allow rating since it's confirmed
+    const startDate = new Date(booking.startDate);
+    const now = new Date();
+    // Allow rating if the trip has started or finished
+    return startDate <= now;
+  };
+
   return (
     <div>
       {/* Header */}
@@ -431,13 +506,24 @@ export function MyBookings() {
                     Cancelled
                   </button>
                 ) : (
-                  <button
-                    onClick={() => handleViewItinerary(booking.id)}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-[var(--color-primary-blue)] hover:bg-[var(--color-primary-blue-hover)] text-white rounded-md transition-colors text-sm font-medium shadow-sm"
-                  >
-                    <Eye className="w-4 h-4" />
-                    Details
-                  </button>
+                  <div className="flex flex-col gap-2 w-full">
+                    <button
+                      onClick={() => handleViewItinerary(booking.id)}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-[var(--color-primary-blue)] hover:bg-[var(--color-primary-blue-hover)] text-white rounded-md transition-colors text-sm font-medium shadow-sm"
+                    >
+                      <Eye className="w-4 h-4" />
+                      Details
+                    </button>
+                    {canRateBooking(booking) && (
+                      <button
+                        onClick={() => handleRateNow(booking)}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md transition-colors text-sm font-medium shadow-sm"
+                      >
+                        <Star className="w-4 h-4 fill-white" />
+                        Rate Trip
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
@@ -864,6 +950,139 @@ export function MyBookings() {
               >
                 <CreditCard className="w-5 h-5" />
                 Complete Payment ${selectedBooking.totalPrice.toLocaleString()}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Rating Modal */}
+      {showRatingModal && ratingBooking && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto">
+          <div className="relative w-full max-w-lg bg-[var(--color-card)] rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 my-auto">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-[var(--color-border)] flex items-center justify-between bg-[var(--color-background)]">
+              <div>
+                <h3 className="text-xl font-bold text-[var(--color-text-primary)]">Rate your Trip</h3>
+                <p className="text-sm text-[var(--color-text-secondary)]">{ratingBooking.packageName}</p>
+              </div>
+              <button
+                onClick={() => setShowRatingModal(false)}
+                className="p-2 hover:bg-black/5 rounded-full transition-colors"
+              >
+                <X className="w-5 h-5 text-[var(--color-text-secondary)]" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-6">
+              {/* Item Selector */}
+              <div>
+                <label className="block text-sm font-semibold text-[var(--color-text-secondary)] mb-2 uppercase tracking-wider">
+                  What are you rating?
+                </label>
+                <div className="grid grid-cols-1 gap-2 max-h-[200px] overflow-y-auto pr-2 custom-scrollbar">
+                  <button
+                    onClick={() => setRatingDetails(prev => ({ ...prev, selectedItem: 'package' }))}
+                    className={`flex items-center justify-between p-3 rounded-lg border-2 transition-all ${ratingDetails.selectedItem === 'package'
+                      ? 'border-purple-500 bg-purple-500/10 text-purple-700'
+                      : 'border-transparent bg-[var(--color-background)] text-[var(--color-text-primary)] hover:bg-black/5 border-[var(--color-border)]'
+                      }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Package className="w-5 h-5" />
+                      <span className="font-medium">Entire Package</span>
+                    </div>
+                    {ratingDetails.selectedItem === 'package' && <div className="w-2 h-2 rounded-full bg-purple-500" />}
+                  </button>
+
+                  {packageItems.map(item => (
+                    <button
+                      key={`${item.item_type}:${item.instance_id || item.item_id}`}
+                      onClick={() => setRatingDetails(prev => ({ ...prev, selectedItem: `${item.item_type}:${item.instance_id || item.item_id}` }))}
+                      className={`flex items-center justify-between p-3 rounded-lg border-2 transition-all ${ratingDetails.selectedItem === `${item.item_type}:${item.instance_id || item.item_id}`
+                        ? 'border-indigo-500 bg-indigo-500/10 text-indigo-700'
+                        : 'border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-text-primary)] hover:bg-black/5'
+                        }`}
+                    >
+                      <div className="flex items-center gap-3 text-left">
+                        {item.item_type === 'service' ? <Plane className="w-5 h-5 text-indigo-500" /> :
+                          item.item_type === 'hotel' ? <MapPin className="w-5 h-5 text-indigo-500" /> :
+                            item.item_type === 'package' ? <Package className="w-5 h-5 text-indigo-500" /> :
+                              <ShoppingBag className="w-5 h-5 text-indigo-500" />}
+                        <div>
+                          <p className="font-medium leading-tight">{item.item_name}</p>
+                          <p className="text-xs opacity-70 capitalize">{item.item_type}</p>
+                        </div>
+                      </div>
+                      {ratingDetails.selectedItem === `${item.item_type}:${item.instance_id || item.item_id}` && <div className="w-2 h-2 rounded-full bg-indigo-500" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Star Rating */}
+              <div className="text-center">
+                <label className="block text-sm font-semibold text-[var(--color-text-secondary)] mb-4 uppercase tracking-wider">
+                  Select Rating
+                </label>
+                <div className="flex justify-center gap-2">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      onClick={() => setRatingDetails(prev => ({ ...prev, rating: star }))}
+                      className="p-1 transition-transform hover:scale-125 focus:outline-none"
+                    >
+                      <Star
+                        className={`w-10 h-10 transition-colors ${star <= ratingDetails.rating
+                          ? 'fill-yellow-400 text-yellow-400'
+                          : 'text-gray-300'
+                          }`}
+                      />
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-2 font-bold text-xl text-yellow-600 h-8">
+                  {ratingDetails.rating === 5 ? 'Excellent!' :
+                    ratingDetails.rating === 4 ? 'Great' :
+                      ratingDetails.rating === 3 ? 'Good' :
+                        ratingDetails.rating === 2 ? 'Fair' : 'Poor'}
+                </p>
+              </div>
+
+              {/* Comment */}
+              <div>
+                <label className="block text-sm font-semibold text-[var(--color-text-secondary)] mb-2 uppercase tracking-wider">
+                  Your Comments
+                </label>
+                <textarea
+                  value={ratingDetails.description}
+                  onChange={(e) => setRatingDetails(prev => ({ ...prev, description: e.target.value }))}
+                  className="w-full p-3 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent min-h-[100px] text-black placeholder:text-gray-500"
+                  placeholder="Tell us about your experience..."
+                />
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 bg-[var(--color-background)] border-t border-[var(--color-border)] flex gap-3">
+              <button
+                onClick={() => setShowRatingModal(false)}
+                className="flex-1 px-4 py-2 border border-[var(--color-border)] text-[var(--color-text-primary)] rounded-lg hover:bg-black/5 transition-colors font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmitReview}
+                disabled={submittingRating}
+                className="flex-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-lg transition-colors font-medium shadow-md flex items-center justify-center gap-2"
+              >
+                {submittingRating ? (
+                  <Clock className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Star className="w-4 h-4" />
+                )}
+                Submit Review
               </button>
             </div>
           </div>

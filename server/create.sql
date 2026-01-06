@@ -662,14 +662,24 @@ $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION get_package_details(p_package_id INTEGER) RETURNS TABLE (
         item_type VARCHAR,
         item_id INTEGER,
+        instance_id INTEGER,
         item_name VARCHAR,
         inicio DATE,
         fin DATE,
         costo DECIMAL,
         millaje INTEGER
-    ) AS $$ BEGIN RETURN QUERY
+    ) AS $$ BEGIN RETURN QUERY WITH RECURSIVE package_hierarchy AS (
+        -- Base: the package itself
+        SELECT p_package_id AS package_id
+        UNION ALL
+        -- Recursive: children packages
+        SELECT pp.fk_paquete_hijo
+        FROM paq_paq pp
+            JOIN package_hierarchy ph ON pp.fk_paquete_padre = ph.package_id
+    )
 SELECT 'service'::VARCHAR AS item_type,
     sp.fk_servicio AS item_id,
+    sp.cod AS instance_id,
     COALESCE(s.nombre_ser, 'Unknown Service')::VARCHAR AS item_name,
     sp.inicio_ser AS inicio,
     sp.fin_ser AS fin,
@@ -679,129 +689,49 @@ SELECT 'service'::VARCHAR AS item_type,
     END AS costo,
     sp.millaje_ser AS millaje
 FROM ser_paq sp
+    JOIN package_hierarchy ph ON sp.fk_paquete = ph.package_id
     LEFT JOIN servicio s ON sp.fk_servicio = s.cod
     LEFT JOIN pro_ser ps ON s.cod = ps.fk_servicio
     AND sp.inicio_ser >= ps.fecha_inicio
     AND sp.fin_ser <= ps.fecha_fin
     LEFT JOIN promocion p ON ps.fk_promocion = p.cod
     AND p.porcen_descuento > 0
-WHERE sp.fk_paquete = p_package_id
 UNION ALL
 SELECT 'hotel'::VARCHAR AS item_type,
     hp.fk_hotel AS item_id,
+    hp.cod AS instance_id,
     COALESCE(h.nombre_hot, 'Unknown Hotel')::VARCHAR AS item_name,
     hp.inicio_estadia_hot AS inicio,
     hp.fin_estadia_hot AS fin,
     hp.costo_reserva_hot AS costo,
     hp.millaje_hot AS millaje
 FROM hot_paq hp
+    JOIN package_hierarchy ph ON hp.fk_paquete = ph.package_id
     LEFT JOIN hotel h ON hp.fk_hotel = h.cod
-WHERE hp.fk_paquete = p_package_id
 UNION ALL
 SELECT 'restaurant'::VARCHAR AS item_type,
     rp.fk_restaurant AS item_id,
+    rp.cod AS instance_id,
     COALESCE(r.nombre_res, 'Unknown Restaurant')::VARCHAR AS item_name,
     rp.inicio_reserva_res AS inicio,
     rp.fin_reserva_res AS fin,
     rp.costo_reserva_res AS costo,
     rp.millaje_res AS millaje
 FROM res_paq rp
+    JOIN package_hierarchy ph ON rp.fk_paquete = ph.package_id
     LEFT JOIN restaurant r ON rp.fk_restaurant = r.cod
-WHERE rp.fk_paquete = p_package_id
 UNION ALL
 SELECT 'package'::VARCHAR AS item_type,
-    pp.fk_paquete_hijo AS item_id,
+    pt.cod AS item_id,
+    NULL::INTEGER AS instance_id,
     pt.nombre_paq::VARCHAR AS item_name,
-    MIN(
-        LEAST(
-            (
-                SELECT MIN(sp2.inicio_ser)
-                FROM ser_paq sp2
-                WHERE sp2.fk_paquete = pt.cod
-            ),
-            (
-                SELECT MIN(hp2.inicio_estadia_hot)
-                FROM hot_paq hp2
-                WHERE hp2.fk_paquete = pt.cod
-            ),
-            (
-                SELECT MIN(rp2.inicio_reserva_res)
-                FROM res_paq rp2
-                WHERE rp2.fk_paquete = pt.cod
-            )
-        )
-    ) AS inicio,
-    MAX(
-        GREATEST(
-            (
-                SELECT MAX(sp2.fin_ser)
-                FROM ser_paq sp2
-                WHERE sp2.fk_paquete = pt.cod
-            ),
-            (
-                SELECT MAX(hp2.fin_estadia_hot)
-                FROM hot_paq hp2
-                WHERE hp2.fk_paquete = pt.cod
-            ),
-            (
-                SELECT MAX(rp2.fin_reserva_res)
-                FROM res_paq rp2
-                WHERE rp2.fk_paquete = pt.cod
-            )
-        )
-    ) AS fin,
-    COALESCE(
-        (
-            SELECT SUM(sp2.costo_ser)
-            FROM ser_paq sp2
-            WHERE sp2.fk_paquete = pt.cod
-        ),
-        0
-    ) + COALESCE(
-        (
-            SELECT SUM(hp2.costo_reserva_hot)
-            FROM hot_paq hp2
-            WHERE hp2.fk_paquete = pt.cod
-        ),
-        0
-    ) + COALESCE(
-        (
-            SELECT SUM(rp2.costo_reserva_res)
-            FROM res_paq rp2
-            WHERE rp2.fk_paquete = pt.cod
-        ),
-        0
-    ) AS costo,
-    (
-        COALESCE(
-            (
-                SELECT SUM(sp2.millaje_ser)
-                FROM ser_paq sp2
-                WHERE sp2.fk_paquete = pt.cod
-            ),
-            0
-        ) + COALESCE(
-            (
-                SELECT SUM(hp2.millaje_hot)
-                FROM hot_paq hp2
-                WHERE hp2.fk_paquete = pt.cod
-            ),
-            0
-        ) + COALESCE(
-            (
-                SELECT SUM(rp2.millaje_res)
-                FROM res_paq rp2
-                WHERE rp2.fk_paquete = pt.cod
-            ),
-            0
-        )
-    )::INTEGER AS millaje
+    NULL::DATE AS inicio,
+    NULL::DATE AS fin,
+    NULL::DECIMAL AS costo,
+    NULL::INTEGER AS millaje
 FROM paq_paq pp
-    JOIN paquete_turistico pt ON pp.fk_paquete_hijo = pt.cod
-WHERE pp.fk_paquete_padre = p_package_id
-GROUP BY pp.fk_paquete_hijo,
-    pt.nombre_paq,
-    pt.cod;
+    JOIN package_hierarchy ph ON pp.fk_paquete_padre = ph.package_id
+    JOIN paquete_turistico pt ON pp.fk_paquete_hijo = pt.cod;
 END;
 $$ LANGUAGE plpgsql;
 -- =============================================
@@ -2290,6 +2220,38 @@ SELECT 'Wishlist: ' || nombre_paq,
 FROM paquete_turistico
 WHERE cod = p_package_id;
 END IF;
+END;
+$$ LANGUAGE plpgsql;
+-- =============================================
+-- 15. REVIEW FUNCTIONS
+-- =============================================
+CREATE OR REPLACE PROCEDURE submit_review(
+        p_description TEXT,
+        p_rating INTEGER,
+        p_user_id INTEGER,
+        p_package_id INTEGER DEFAULT NULL,
+        p_ser_paq_id INTEGER DEFAULT NULL,
+        p_hotel_id INTEGER DEFAULT NULL,
+        p_lugar_id INTEGER DEFAULT NULL
+    ) AS $$ BEGIN
+INSERT INTO reseña (
+        descripcion_res,
+        rating_res,
+        fk_cod_usuario,
+        fk_cod_paquete,
+        fk_ser_paq,
+        fk_cod_hotel,
+        fk_cod_lugar
+    )
+VALUES (
+        p_description,
+        p_rating,
+        p_user_id,
+        p_package_id,
+        p_ser_paq_id,
+        p_hotel_id,
+        p_lugar_id
+    );
 END;
 $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION is_in_wishlist(
