@@ -2461,121 +2461,195 @@ $$ LANGUAGE plpgsql;
 -- Trip Cancellation with Refund
 -- =============================================
 CREATE OR REPLACE FUNCTION cancel_package_with_refund(
-    p_package_id INTEGER,
-    p_user_id INTEGER
-) RETURNS TABLE (
-    refund_amount DECIMAL,
-    penalty_amount DECIMAL,
-    original_amount DECIMAL,
-    previous_status VARCHAR
-) AS $$
-DECLARE
-    v_total_paid DECIMAL := 0;
-    v_refund DECIMAL;
-    v_penalty DECIMAL;
-    v_current_status VARCHAR;
-    v_package_owner INTEGER;
-BEGIN
-    -- 1. Verify package exists and belongs to the user
-    SELECT estado_paq, fk_cod_usuario INTO v_current_status, v_package_owner
-    FROM paquete_turistico
-    WHERE cod = p_package_id;
-    
-    IF NOT FOUND THEN
-        RAISE EXCEPTION 'Package with ID % not found', p_package_id;
-    END IF;
-    
-    IF v_package_owner IS NULL OR v_package_owner != p_user_id THEN
-        RAISE EXCEPTION 'Package does not belong to user %', p_user_id;
-    END IF;
-    
-    IF v_current_status = 'Cancelled' THEN
-        RAISE EXCEPTION 'Package is already cancelled';
-    END IF;
-    
-    -- 2. Calculate total amount paid for this package
-    SELECT COALESCE(SUM(monto_pago), 0) INTO v_total_paid
-    FROM pago
-    WHERE fk_cod_paquete = p_package_id
-      AND monto_pago > 0; -- Only positive payments (exclude refunds)
-    
-    -- If no payments found, still allow cancellation but with 0 refund
-    IF v_total_paid <= 0 THEN
-        v_total_paid := 0;
-        v_penalty := 0;
-        v_refund := 0;
-    ELSE
-        -- 3. Calculate penalty (10%) and refund (90%)
-        v_penalty := v_total_paid * 0.10;
-        v_refund := v_total_paid * 0.90;
-    END IF;
-    
-    -- 4. Update package status to Cancelled
-    UPDATE paquete_turistico
-    SET estado_paq = 'Cancelled',
-        fecha_cancelacion = CURRENT_DATE
-    WHERE cod = p_package_id;
-    
-    -- 5. Record refund transaction (if applicable)
-    IF v_refund > 0 THEN
-        -- Create a payment method record for the refund (reusing existing or creating generic)
-        -- For simplicity, we'll create a refund entry without a full payment method
-        -- In production, you might want to track which original payment method to refund to
-        
-        INSERT INTO metodoDePago (
-            descripcion_met,
-            fk_usuario,
-            tipoMetodo
-        ) VALUES (
-            'Refund - Pkg #' || p_package_id,
-            p_user_id,
-            'Zelle' -- Refund method (short enough for VARCHAR(20))
-        );
-        
-        -- Insert refund payment (negative amount indicates refund)
-        INSERT INTO pago (
-            monto_pago,
-            fecha_pago,
-            fk_cod_paquete,
-            fk_metodo_pago
-        ) VALUES (
-            -v_refund, -- Negative to indicate money going out
-            CURRENT_TIMESTAMP,
-            p_package_id,
-            currval('metododepago_cod_seq') -- Get the ID of the payment method just inserted
-        );
-    END IF;
-    
-    -- 6. Record penalty transaction (if applicable)
-    IF v_penalty > 0 THEN
-        INSERT INTO metodoDePago (
-            descripcion_met,
-            fk_usuario,
-            tipoMetodo
-        ) VALUES (
-            'Penalty - Pkg #' || p_package_id,
-            p_user_id,
-            'Milla' -- Internal accounting
-        );
-        
-        INSERT INTO pago (
-            monto_pago,
-            fecha_pago,
-            fk_cod_paquete,
-            fk_metodo_pago
-        ) VALUES (
-            v_penalty,
-            CURRENT_TIMESTAMP,
-            p_package_id,
-            currval('metododepago_cod_seq')
-        );
-    END IF;
-    
-    -- 7. Return details
-    RETURN QUERY SELECT 
-        v_refund, 
-        v_penalty, 
-        v_total_paid,
-        v_current_status;
+        p_package_id INTEGER,
+        p_user_id INTEGER
+    ) RETURNS TABLE (
+        refund_amount DECIMAL,
+        penalty_amount DECIMAL,
+        original_amount DECIMAL,
+        previous_status VARCHAR
+    ) AS $$
+DECLARE v_total_paid DECIMAL := 0;
+v_refund DECIMAL;
+v_penalty DECIMAL;
+v_current_status VARCHAR;
+v_package_owner INTEGER;
+BEGIN -- 1. Verify package exists and belongs to the user
+SELECT estado_paq,
+    fk_cod_usuario INTO v_current_status,
+    v_package_owner
+FROM paquete_turistico
+WHERE cod = p_package_id;
+IF NOT FOUND THEN RAISE EXCEPTION 'Package with ID % not found',
+p_package_id;
+END IF;
+IF v_package_owner IS NULL
+OR v_package_owner != p_user_id THEN RAISE EXCEPTION 'Package does not belong to user %',
+p_user_id;
+END IF;
+IF v_current_status = 'Cancelled' THEN RAISE EXCEPTION 'Package is already cancelled';
+END IF;
+-- 2. Calculate total amount paid for this package
+SELECT COALESCE(SUM(monto_pago), 0) INTO v_total_paid
+FROM pago
+WHERE fk_cod_paquete = p_package_id
+    AND monto_pago > 0;
+-- Only positive payments (exclude refunds)
+-- If no payments found, still allow cancellation but with 0 refund
+IF v_total_paid <= 0 THEN v_total_paid := 0;
+v_penalty := 0;
+v_refund := 0;
+ELSE -- 3. Calculate penalty (10%) and refund (90%)
+v_penalty := v_total_paid * 0.10;
+v_refund := v_total_paid * 0.90;
+END IF;
+-- 4. Update package status to Cancelled
+UPDATE paquete_turistico
+SET estado_paq = 'Cancelled',
+    fecha_cancelacion = CURRENT_DATE
+WHERE cod = p_package_id;
+-- 5. Record refund transaction (if applicable)
+IF v_refund > 0 THEN -- Create a payment method record for the refund (reusing existing or creating generic)
+-- For simplicity, we'll create a refund entry without a full payment method
+-- In production, you might want to track which original payment method to refund to
+INSERT INTO metodoDePago (
+        descripcion_met,
+        fk_usuario,
+        tipoMetodo
+    )
+VALUES (
+        'Refund - Pkg #' || p_package_id,
+        p_user_id,
+        'Zelle' -- Refund method (short enough for VARCHAR(20))
+    );
+-- Insert refund payment (negative amount indicates refund)
+INSERT INTO pago (
+        monto_pago,
+        fecha_pago,
+        fk_cod_paquete,
+        fk_metodo_pago
+    )
+VALUES (
+        - v_refund,
+        -- Negative to indicate money going out
+        CURRENT_TIMESTAMP,
+        p_package_id,
+        currval('metododepago_cod_seq') -- Get the ID of the payment method just inserted
+    );
+END IF;
+-- 6. Record penalty transaction (if applicable)
+IF v_penalty > 0 THEN
+INSERT INTO metodoDePago (
+        descripcion_met,
+        fk_usuario,
+        tipoMetodo
+    )
+VALUES (
+        'Penalty - Pkg #' || p_package_id,
+        p_user_id,
+        'Milla' -- Internal accounting
+    );
+INSERT INTO pago (
+        monto_pago,
+        fecha_pago,
+        fk_cod_paquete,
+        fk_metodo_pago
+    )
+VALUES (
+        v_penalty,
+        CURRENT_TIMESTAMP,
+        p_package_id,
+        currval('metododepago_cod_seq')
+    );
+END IF;
+-- 7. Return details
+RETURN QUERY
+SELECT v_refund,
+    v_penalty,
+    v_total_paid,
+    v_current_status;
+END;
+$$ LANGUAGE plpgsql;
+-- =============================================
+-- 16. NEW PACKAGE AND SERVICE REVIEW FUNCTIONS
+-- =============================================
+CREATE OR REPLACE FUNCTION get_all_packages_with_ratings() RETURNS TABLE (
+        p_cod INTEGER,
+        p_nombre_paq VARCHAR,
+        p_descripcion_paq TEXT,
+        p_avg_rating DECIMAL,
+        p_review_count INTEGER
+    ) AS $$ BEGIN RETURN QUERY
+SELECT p.cod,
+    p.nombre_paq,
+    p.descripcion_paq,
+    COALESCE(AVG(r.rating_res), 0)::DECIMAL AS p_avg_rating,
+    COUNT(r.cod)::INTEGER AS p_review_count
+FROM paquete_turistico p
+    LEFT JOIN reseña r ON p.cod = r.fk_cod_paquete
+GROUP BY p.cod,
+    p.nombre_paq,
+    p.descripcion_paq
+ORDER BY p.nombre_paq;
+END;
+$$ LANGUAGE plpgsql;
+CREATE OR REPLACE FUNCTION get_package_services_with_ratings(p_package_id INTEGER) RETURNS TABLE (
+        s_cod INTEGER,
+        s_nombre VARCHAR,
+        s_type VARCHAR,
+        s_avg_rating DECIMAL,
+        s_review_count INTEGER
+    ) AS $$ BEGIN RETURN QUERY
+SELECT s.cod,
+    s.nombre_ser,
+    'Service'::VARCHAR as s_type,
+    COALESCE(AVG(r.rating_res), 0)::DECIMAL AS s_avg_rating,
+    COUNT(r.cod)::INTEGER AS s_review_count
+FROM ser_paq sp
+    JOIN servicio s ON sp.fk_servicio = s.cod
+    LEFT JOIN ser_paq sp_all ON s.cod = sp_all.fk_servicio
+    LEFT JOIN reseña r ON sp_all.cod = r.fk_ser_paq
+WHERE sp.fk_paquete = p_package_id
+GROUP BY s.cod,
+    s.nombre_ser;
+END;
+$$ LANGUAGE plpgsql;
+CREATE OR REPLACE FUNCTION get_package_reviews(p_package_id INTEGER) RETURNS TABLE (
+        r_cod INTEGER,
+        r_description TEXT,
+        r_rating INTEGER,
+        r_user_name VARCHAR,
+        r_date TIMESTAMP
+    ) AS $$ BEGIN RETURN QUERY
+SELECT r.cod AS r_cod,
+    r.descripcion_res AS r_description,
+    r.rating_res AS r_rating,
+    (
+        u.primer_nombre_usu || ' ' || u.primer_apellido_usu
+    )::VARCHAR AS r_user_name,
+    NOW()::TIMESTAMP AS r_date -- Placeholder since reseña doesn't have a date field
+FROM reseña r
+    JOIN usuario u ON r.fk_cod_usuario = u.cod
+WHERE r.fk_cod_paquete = p_package_id;
+END;
+$$ LANGUAGE plpgsql;
+CREATE OR REPLACE FUNCTION get_service_reviews(p_service_id INTEGER) RETURNS TABLE (
+        r_cod INTEGER,
+        r_description TEXT,
+        r_rating INTEGER,
+        r_user_name VARCHAR,
+        r_date TIMESTAMP
+    ) AS $$ BEGIN RETURN QUERY
+SELECT r.cod AS r_cod,
+    r.descripcion_res AS r_description,
+    r.rating_res AS r_rating,
+    (
+        u.primer_nombre_usu || ' ' || u.primer_apellido_usu
+    )::VARCHAR AS r_user_name,
+    NOW()::TIMESTAMP AS r_date
+FROM reseña r
+    JOIN ser_paq sp ON r.fk_ser_paq = sp.cod
+    JOIN usuario u ON r.fk_cod_usuario = u.cod
+WHERE sp.fk_servicio = p_service_id;
 END;
 $$ LANGUAGE plpgsql;

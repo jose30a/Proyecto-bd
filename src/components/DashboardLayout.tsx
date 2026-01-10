@@ -13,7 +13,8 @@ import {
   Building2,
   Home,
   Shield,
-  Briefcase
+  Briefcase,
+  MessageSquare
 } from 'lucide-react';
 
 export function DashboardLayout() {
@@ -50,6 +51,7 @@ export function DashboardLayout() {
     { path: '/dashboard/itinerary', label: 'Crear Itinerario', icon: Map },
     { path: '/dashboard/my-bookings', label: 'Mis Reservas', icon: Briefcase },
     { path: '/dashboard/reports', label: 'Reportes', icon: BarChart3 },
+    { path: '/dashboard/reviews', label: 'Reseñas y Calificaciones', icon: MessageSquare },
   ];
 
   return (

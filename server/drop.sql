@@ -330,3 +330,10 @@ DROP FUNCTION IF EXISTS get_all_tags() CASCADE;
 DROP FUNCTION IF EXISTS get_package_tags(INTEGER) CASCADE;
 DROP FUNCTION IF EXISTS evaluate_tag_condition(INTEGER, INTEGER) CASCADE;
 DROP FUNCTION IF EXISTS check_package_restrictions(INTEGER, INTEGER) CASCADE;
+-- =============================================
+-- 16. NEW PACKAGE AND SERVICE REVIEW DROPS
+-- =============================================
+DROP FUNCTION IF EXISTS get_all_packages_with_ratings() CASCADE;
+DROP FUNCTION IF EXISTS get_package_services_with_ratings(INTEGER) CASCADE;
+DROP FUNCTION IF EXISTS get_package_reviews(INTEGER) CASCADE;
+DROP FUNCTION IF EXISTS get_service_reviews(INTEGER) CASCADE;

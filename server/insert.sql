@@ -1481,3 +1481,173 @@ WHERE descripcion_priv IN (
         'view_bookings',
         'view_promotions'
     );
+-- =============================================
+-- 11. PACKAGE AND SERVICE REVIEWS (REALISTIC)
+-- =============================================
+-- Ensure we have packages with matching names
+UPDATE paquete_turistico
+SET nombre_paq = 'Europa Mágica',
+    descripcion_paq = 'Tour inolvidable por las capitales europeas.'
+WHERE cod = 1;
+UPDATE paquete_turistico
+SET nombre_paq = 'Aventura en Venezuela',
+    descripcion_paq = 'Ruta por el Salto Ángel y Canaima.'
+WHERE cod = 2;
+UPDATE paquete_turistico
+SET nombre_paq = 'Caribe Total',
+    descripcion_paq = 'Sol, playa y relax en las mejores islas.'
+WHERE cod = 3;
+UPDATE paquete_turistico
+SET nombre_paq = 'Descubriendo Japón',
+    descripcion_paq = 'Cultura milenaria y tecnología de punta.'
+WHERE cod = 4;
+-- Package Reviews
+INSERT INTO reseña (
+        descripcion_res,
+        rating_res,
+        fk_cod_usuario,
+        fk_cod_paquete
+    )
+SELECT 'The adventure tour in Venezuela was better than expected! The Angel Falls view is just breathtaking.',
+    5,
+    u.cod,
+    p.cod
+FROM usuario u,
+    paquete_turistico p
+WHERE p.nombre_paq LIKE '%Venezuela%'
+    OR p.nombre_paq LIKE '%Aventura%'
+LIMIT 3;
+INSERT INTO reseña (
+        descripcion_res,
+        rating_res,
+        fk_cod_usuario,
+        fk_cod_paquete
+    )
+SELECT 'Europe trip was well organized, but the transit times between cities were a bit long.',
+    4,
+    u.cod,
+    p.cod
+FROM usuario u,
+    paquete_turistico p
+WHERE p.nombre_paq LIKE '%Europa%'
+LIMIT 2;
+INSERT INTO reseña (
+        descripcion_res,
+        rating_res,
+        fk_cod_usuario,
+        fk_cod_paquete
+    )
+SELECT 'Increíble experiencia en el Caribe. Todo muy bien organizado.',
+    5,
+    u.cod,
+    p.cod
+FROM usuario u,
+    paquete_turistico p
+WHERE p.nombre_paq LIKE '%Caribe%'
+    OR p.nombre_paq LIKE '%Playa%'
+LIMIT 2;
+INSERT INTO reseña (
+        descripcion_res,
+        rating_res,
+        fk_cod_usuario,
+        fk_cod_paquete
+    )
+SELECT 'El tour por Japón fue un sueño. Los guías hablaban español perfectamente.',
+    5,
+    u.cod,
+    p.cod
+FROM usuario u,
+    paquete_turistico p
+WHERE p.nombre_paq LIKE '%Japón%'
+LIMIT 2;
+-- Generic reviews for ANY package to ensure things show up
+INSERT INTO reseña (
+        descripcion_res,
+        rating_res,
+        fk_cod_usuario,
+        fk_cod_paquete
+    )
+SELECT 'Muy buen paquete, lo recomiendo ampliamente.',
+    4,
+    u.cod,
+    p.cod
+FROM usuario u
+    JOIN paquete_turistico p ON u.cod = p.fk_cod_usuario
+ORDER BY random()
+LIMIT 10;
+-- Service Reviews
+INSERT INTO reseña (
+        descripcion_res,
+        rating_res,
+        fk_cod_usuario,
+        fk_ser_paq
+    )
+SELECT 'The flight crew was very attentive and the boarding process was smooth.',
+    5,
+    u.cod,
+    sp.cod
+FROM usuario u,
+    ser_paq sp
+    JOIN servicio s ON sp.fk_servicio = s.cod
+WHERE s.nombre_ser LIKE '%Vuelo%'
+LIMIT 5;
+INSERT INTO reseña (
+        descripcion_res,
+        rating_res,
+        fk_cod_usuario,
+        fk_ser_paq
+    )
+SELECT 'The guided city tour was informative, but the guide spoke a bit too fast.',
+    4,
+    u.cod,
+    sp.cod
+FROM usuario u,
+    ser_paq sp
+    JOIN servicio s ON sp.fk_servicio = s.cod
+WHERE s.nombre_ser LIKE '%Tour%'
+LIMIT 5;
+INSERT INTO reseña (
+        descripcion_res,
+        rating_res,
+        fk_cod_usuario,
+        fk_ser_paq
+    )
+SELECT 'El crucero fue espectacular, pero las excursiones en tierra eran muy cortas.',
+    4,
+    u.cod,
+    sp.cod
+FROM usuario u,
+    ser_paq sp
+    JOIN servicio s ON sp.fk_servicio = s.cod
+WHERE s.nombre_ser LIKE '%Crucero%'
+LIMIT 3;
+INSERT INTO reseña (
+        descripcion_res,
+        rating_res,
+        fk_cod_usuario,
+        fk_ser_paq
+    )
+SELECT 'Excelente atención en el restaurante del hotel. La comida deliciosa.',
+    5,
+    u.cod,
+    sp.cod
+FROM usuario u,
+    ser_paq sp
+    JOIN servicio s ON sp.fk_servicio = s.cod
+WHERE s.nombre_ser LIKE '%Restaurante%'
+LIMIT 5;
+INSERT INTO reseña (
+        descripcion_res,
+        rating_res,
+        fk_cod_usuario,
+        fk_ser_paq
+    )
+SELECT 'Car rental process was slow. They didn''t have the exact model I booked.',
+    2,
+    u.cod,
+    sp.cod
+FROM usuario u,
+    ser_paq sp
+    JOIN servicio s ON sp.fk_servicio = s.cod
+WHERE s.nombre_ser LIKE '%Alquiler%'
+LIMIT 1;

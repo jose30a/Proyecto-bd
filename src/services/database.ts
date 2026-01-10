@@ -436,9 +436,6 @@ export interface PackageDetailItem {
   millaje?: number;
 }
 
-export async function getPackageReviews(packageId: number) {
-  return callFunction('get_package_reviews', [packageId]);
-}
 
 export async function toggleWishlist(userId: number, packageId: number) {
   return callProcedure('toggle_wishlist', [
@@ -981,4 +978,74 @@ export async function cancelPackage(
     original_amount: parseFloat(result[0].original_amount || 0),
     previous_status: result[0].previous_status || 'Unknown'
   };
+}
+
+// ==================== Reviews & Ratings ====================
+
+export interface PackageWithRating {
+  p_cod: number;
+  p_nombre_paq: string;
+  p_descripcion_paq: string;
+  p_avg_rating: number;
+  p_review_count: number;
+}
+
+export interface ServiceWithRating {
+  s_cod: number;
+  s_nombre: string;
+  s_type: string;
+  s_avg_rating: number;
+  s_review_count: number;
+}
+
+export interface Review {
+  r_cod: number;
+  r_description: string;
+  r_rating: number;
+  r_user_name: string;
+  r_date: string;
+}
+
+/**
+ * Get all packages with their average ratings
+ */
+export async function getAllPackagesWithRatings(): Promise<PackageWithRating[]> {
+  const result = await callFunction<PackageWithRating>('get_all_packages_with_ratings', []);
+  return result.map(r => ({
+    ...r,
+    p_avg_rating: Number(r.p_avg_rating) || 0
+  }));
+}
+
+/**
+ * Get services for a package with their ratings
+ */
+export async function getPackageServicesWithRatings(packageId: number): Promise<ServiceWithRating[]> {
+  const result = await callFunction<ServiceWithRating>('get_package_services_with_ratings', [
+    { value: packageId, type: 'INTEGER' }
+  ]);
+  return result.map(r => ({
+    ...r,
+    s_avg_rating: Number(r.s_avg_rating) || 0
+  }));
+}
+
+/**
+ * Get reviews for a package
+ */
+export async function getPackageReviews(packageId: number): Promise<Review[]> {
+  const result = await callFunction<Review>('get_package_reviews', [
+    { value: packageId, type: 'INTEGER' }
+  ]);
+  return result;
+}
+
+/**
+ * Get reviews for a generic service
+ */
+export async function getServiceReviews(serviceId: number): Promise<Review[]> {
+  const result = await callFunction<Review>('get_service_reviews', [
+    { value: serviceId, type: 'INTEGER' }
+  ]);
+  return result;
 }

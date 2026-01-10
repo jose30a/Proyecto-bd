@@ -12,6 +12,7 @@ import { RolePrivilegesManagement } from "./components/RolePrivilegesManagement"
 import { BuildItinerary } from "./components/BuildItinerary";
 import { Reports } from "./components/Reports";
 import { MyBookings } from "./components/MyBookings";
+import { PackageReviews } from "./components/PackageReviews";
 
 export const router = createBrowserRouter([
   {
@@ -32,6 +33,7 @@ export const router = createBrowserRouter([
       { path: "itinerary", Component: BuildItinerary },
       { path: "reports", Component: Reports },
       { path: "my-bookings", Component: MyBookings },
+      { path: "reviews", Component: PackageReviews },
     ],
   },
 ]);
