@@ -2653,3 +2653,93 @@ FROM reseña r
 WHERE sp.fk_servicio = p_service_id;
 END;
 $$ LANGUAGE plpgsql;
+CREATE OR REPLACE FUNCTION get_package_hotels_with_ratings(p_package_id INTEGER) RETURNS TABLE (
+        h_cod INTEGER,
+        h_nombre VARCHAR,
+        h_avg_rating DECIMAL,
+        h_review_count INTEGER
+    ) AS $$ BEGIN RETURN QUERY
+SELECT h.cod,
+    h.nombre_hot,
+    COALESCE(AVG(r.rating_res), 0)::DECIMAL AS h_avg_rating,
+    COUNT(r.cod)::INTEGER AS h_review_count
+FROM hot_paq hp
+    JOIN hotel h ON hp.fk_hotel = h.cod
+    LEFT JOIN reseña r ON h.cod = r.fk_cod_hotel
+WHERE hp.fk_paquete = p_package_id
+GROUP BY h.cod,
+    h.nombre_hot;
+END;
+$$ LANGUAGE plpgsql;
+CREATE OR REPLACE FUNCTION get_hotel_reviews(p_hotel_id INTEGER) RETURNS TABLE (
+        r_cod INTEGER,
+        r_description TEXT,
+        r_rating INTEGER,
+        r_user_name VARCHAR,
+        r_date TIMESTAMP
+    ) AS $$ BEGIN RETURN QUERY
+SELECT r.cod AS r_cod,
+    r.descripcion_res AS r_description,
+    r.rating_res AS r_rating,
+    (
+        u.primer_nombre_usu || ' ' || u.primer_apellido_usu
+    )::VARCHAR AS r_user_name,
+    NOW()::TIMESTAMP AS r_date
+FROM reseña r
+    JOIN usuario u ON r.fk_cod_usuario = u.cod
+WHERE r.fk_cod_hotel = p_hotel_id;
+END;
+$$ LANGUAGE plpgsql;
+-- =============================================
+-- 17. COMPLAINT FUNCTIONS
+-- =============================================
+CREATE OR REPLACE PROCEDURE submit_complaint(
+        p_description TEXT,
+        p_user_id INTEGER,
+        p_package_id INTEGER DEFAULT NULL,
+        p_ser_paq_id INTEGER DEFAULT NULL,
+        p_hotel_id INTEGER DEFAULT NULL
+    ) AS $$ BEGIN
+INSERT INTO reclamo (
+        descripcion_rec,
+        estado_rec,
+        fk_cod_usuario,
+        fk_cod_paquete,
+        fk_ser_paq,
+        fk_cod_hotel
+    )
+VALUES (
+        p_description,
+        'Abierto',
+        -- Default status
+        p_user_id,
+        p_package_id,
+        p_ser_paq_id,
+        p_hotel_id
+    );
+END;
+$$ LANGUAGE plpgsql;
+CREATE OR REPLACE FUNCTION get_user_complaints(p_user_id INTEGER) RETURNS TABLE (
+        p_cod INTEGER,
+        p_description TEXT,
+        p_status VARCHAR,
+        p_item_name VARCHAR
+    ) AS $$ BEGIN RETURN QUERY
+SELECT r.cod as p_cod,
+    r.descripcion_rec as p_description,
+    r.estado_rec as p_status,
+    COALESCE(
+        pt.nombre_paq,
+        s.nombre_ser,
+        h.nombre_hot,
+        'General'
+    )::VARCHAR as p_item_name
+FROM reclamo r
+    LEFT JOIN paquete_turistico pt ON r.fk_cod_paquete = pt.cod
+    LEFT JOIN ser_paq sp ON r.fk_ser_paq = sp.cod
+    LEFT JOIN servicio s ON sp.fk_servicio = s.cod
+    LEFT JOIN hotel h ON r.fk_cod_hotel = h.cod
+WHERE r.fk_cod_usuario = p_user_id
+ORDER BY r.cod DESC;
+END;
+$$ LANGUAGE plpgsql;

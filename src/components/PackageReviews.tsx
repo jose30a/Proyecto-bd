@@ -12,10 +12,13 @@ import {
 import {
     getAllPackagesWithRatings,
     getPackageServicesWithRatings,
+    getPackageHotelsWithRatings,
     getPackageReviews,
     getServiceReviews,
+    getHotelReviews,
     PackageWithRating,
     ServiceWithRating,
+    HotelWithRating,
     Review
 } from '../services/database';
 
@@ -24,6 +27,7 @@ export function PackageReviews() {
     const [loading, setLoading] = useState(true);
     const [expandedPackage, setExpandedPackage] = useState<number | null>(null);
     const [packageServices, setPackageServices] = useState<Record<number, ServiceWithRating[]>>({});
+    const [packageHotels, setPackageHotels] = useState<Record<number, HotelWithRating[]>>({});
     const [selectedItemReviews, setSelectedItemReviews] = useState<Review[]>([]);
     const [showReviewsModal, setShowReviewsModal] = useState(false);
     const [modalTitle, setModalTitle] = useState('');
@@ -59,6 +63,14 @@ export function PackageReviews() {
                 console.error('Error loading services:', error);
             }
         }
+        if (!packageHotels[pkgId]) {
+            try {
+                const hotels = await getPackageHotelsWithRatings(pkgId);
+                setPackageHotels((prev: Record<number, HotelWithRating[]>) => ({ ...prev, [pkgId]: hotels }));
+            } catch (error) {
+                console.error('Error loading hotels:', error);
+            }
+        }
     };
 
     const handleShowPackageReviews = async (pkg: PackageWithRating) => {
@@ -80,6 +92,17 @@ export function PackageReviews() {
             setShowReviewsModal(true);
         } catch (error) {
             console.error('Error loading service reviews:', error);
+        }
+    };
+
+    const handleShowHotelReviews = async (htl: HotelWithRating) => {
+        try {
+            const reviews = await getHotelReviews(htl.h_cod);
+            setSelectedItemReviews(reviews);
+            setModalTitle(`Reseñas de ${htl.h_nombre}`);
+            setShowReviewsModal(true);
+        } catch (error) {
+            console.error('Error loading hotel reviews:', error);
         }
     };
 
@@ -149,28 +172,55 @@ export function PackageReviews() {
                         </div>
 
                         {expandedPackage === pkg.p_cod && (
-                            <div className="border-t border-[var(--color-border)] bg-gray-100 p-6">
-                                <h4 className="text-sm font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-4">Servicios Incluidos</h4>
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                    {packageServices[pkg.p_cod]?.map((svc) => (
-                                        <div key={svc.s_cod} className="bg-white border border-[var(--color-border)] p-4 rounded-lg shadow-sm flex flex-col justify-between">
-                                            <div className="flex items-start justify-between mb-3">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="font-medium text-[var(--color-text-primary)]">{svc.s_nombre}</span>
+                            <div className="border-t border-[var(--color-border)] bg-gray-100 p-6 space-y-8">
+                                <div>
+                                    <h4 className="text-sm font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-4">Servicios Incluidos</h4>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                        {packageServices[pkg.p_cod]?.map((svc) => (
+                                            <div key={svc.s_cod} className="bg-white border border-[var(--color-border)] p-4 rounded-lg shadow-sm flex flex-col justify-between">
+                                                <div className="flex items-start justify-between mb-3">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-medium text-[var(--color-text-primary)]">{svc.s_nombre}</span>
+                                                    </div>
+                                                </div>
+                                                <div
+                                                    className="flex items-center justify-between cursor-pointer p-2 rounded hover:bg-gray-50 transition-colors border border-transparent hover:border-blue-200"
+                                                    onClick={() => handleShowServiceReviews(svc)}
+                                                >
+                                                    {renderStars(svc.s_avg_rating)}
+                                                    <span className="text-xs text-blue-600 font-medium">{svc.s_review_count} reseñas</span>
                                                 </div>
                                             </div>
-                                            <div
-                                                className="flex items-center justify-between cursor-pointer p-2 rounded hover:bg-gray-50 transition-colors border border-transparent hover:border-blue-200"
-                                                onClick={() => handleShowServiceReviews(svc)}
-                                            >
-                                                {renderStars(svc.s_avg_rating)}
-                                                <span className="text-xs text-blue-600 font-medium">{svc.s_review_count} reseñas</span>
+                                        ))}
+                                        {(!packageServices[pkg.p_cod] || packageServices[pkg.p_cod].length === 0) && (
+                                            <p className="text-sm text-gray-500 italic">No hay servicios registrados en este paquete.</p>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <h4 className="text-sm font-semibold text-[var(--color-text-secondary)] uppercase tracking-wider mb-4">Hoteles Incluidos</h4>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                        {packageHotels[pkg.p_cod]?.map((htl) => (
+                                            <div key={htl.h_cod} className="bg-white border border-[var(--color-border)] p-4 rounded-lg shadow-sm flex flex-col justify-between">
+                                                <div className="flex items-start justify-between mb-3">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-medium text-[var(--color-text-primary)]">{htl.h_nombre}</span>
+                                                    </div>
+                                                </div>
+                                                <div
+                                                    className="flex items-center justify-between cursor-pointer p-2 rounded hover:bg-gray-100/50 transition-colors border border-transparent hover:border-blue-200"
+                                                    onClick={() => handleShowHotelReviews(htl)}
+                                                >
+                                                    {renderStars(htl.h_avg_rating)}
+                                                    <span className="text-xs text-blue-600 font-medium">{htl.h_review_count} reseñas</span>
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
-                                    {(!packageServices[pkg.p_cod] || packageServices[pkg.p_cod].length === 0) && (
-                                        <p className="text-sm text-gray-500 italic">No hay servicios registrados en este paquete.</p>
-                                    )}
+                                        ))}
+                                        {(!packageHotels[pkg.p_cod] || packageHotels[pkg.p_cod].length === 0) && (
+                                            <p className="text-sm text-gray-500 italic">No hay hoteles registrados en este paquete.</p>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         )}

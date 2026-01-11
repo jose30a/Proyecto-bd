@@ -102,6 +102,17 @@ export function MyBookings() {
   const [cancelBooking, setCancelBooking] = useState<Booking | null>(null);
   const [cancellingBooking, setCancellingBooking] = useState(false);
 
+  // Complaint state
+  const [showComplaintModal, setShowComplaintModal] = useState(false);
+  const [complaintBooking, setComplaintBooking] = useState<Booking | null>(null);
+  const [complaints, setComplaints] = useState<any[]>([]);
+  const [complaintDetails, setComplaintDetails] = useState({
+    description: '',
+    selectedItem: 'package'
+  });
+  const [submittingComplaint, setSubmittingComplaint] = useState(false);
+  const [loadingComplaints, setLoadingComplaints] = useState(false);
+
   useEffect(() => {
     loadData();
   }, []);
@@ -146,12 +157,27 @@ export function MyBookings() {
 
         const userWishlist = await getWishlist(currentUser.cod);
         setWishlist(userWishlist || []);
+
+        await loadComplaints(currentUser.cod);
       }
     } catch (error) {
       console.error('Failed to load data:', error);
       setError('Failed to load data. Please try again.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadComplaints = async (userId: number) => {
+    try {
+      setLoadingComplaints(true);
+      const { getUserComplaints } = await import('../services/database');
+      const data = await getUserComplaints(userId);
+      setComplaints(data);
+    } catch (err) {
+      console.error('Failed to load complaints', err);
+    } finally {
+      setLoadingComplaints(false);
     }
   };
 
@@ -352,6 +378,61 @@ export function MyBookings() {
     }
   };
 
+  const handleComplaintNow = async (booking: Booking) => {
+    try {
+      setComplaintBooking(booking);
+      setShowComplaintModal(true);
+      setLoading(true);
+      const items = await getPackageDetails(booking.id);
+      setPackageItems(items);
+      setComplaintDetails({
+        description: '',
+        selectedItem: 'package'
+      });
+    } catch (err) {
+      console.error('Failed to load package details for complaint', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSubmitComplaint = async () => {
+    if (!complaintBooking || !user) return;
+    if (!complaintDetails.description.trim()) {
+      alert('Please provide a description');
+      return;
+    }
+
+    try {
+      setSubmittingComplaint(true);
+      const { submitComplaint } = await import('../services/database');
+
+      const [type, id] = complaintDetails.selectedItem.split(':');
+      const complaintData: any = {
+        description: complaintDetails.description,
+        userId: user.cod
+      };
+
+      if (type === 'package' || !type) {
+        complaintData.packageId = complaintBooking.id;
+      } else if (type === 'service') {
+        complaintData.serPaqId = parseInt(id);
+      } else if (type === 'hotel') {
+        complaintData.hotelId = parseInt(id);
+      }
+
+      await submitComplaint(complaintData);
+      alert('Complaint submitted successfully! We will review it shortly.');
+      setShowComplaintModal(false);
+      await loadComplaints(user.cod); // Refresh complaints list
+    } catch (err) {
+      console.error('Failed to submit complaint', err);
+      alert('Failed to submit complaint. Please try again.');
+    } finally {
+      setSubmittingComplaint(false);
+    }
+  };
+
   const canRateBooking = (booking: Booking): boolean => {
     if (booking.status !== 'Confirmed') return false;
     if (!booking.startDate) return true; // If no date, allow rating since it's confirmed
@@ -457,6 +538,34 @@ The refund will be processed to your original payment method within 5-7 business
         </p>
       </div>
 
+      {/* Complaints Section */}
+      {complaints.length > 0 && (
+        <div className="mb-12">
+          <h2 className="text-2xl font-bold text-gray-900 mb-6 flex items-center gap-2">
+            <AlertCircle className="w-6 h-6 text-red-600" />
+            My Complaints
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {complaints.map((complaint) => (
+              <div key={complaint.id} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                <div className="p-6">
+                  <div className="flex justify-between items-start mb-4">
+                    <span className="px-3 py-1 bg-red-50 text-red-700 text-xs font-medium rounded-full border border-red-100 uppercase tracking-wider">
+                      {complaint.status}
+                    </span>
+                    <span className="text-sm font-semibold text-gray-500">#{complaint.id}</span>
+                  </div>
+                  <h3 className="font-bold text-gray-900 mb-2">{complaint.itemName}</h3>
+                  <p className="text-gray-600 text-sm line-clamp-3 mb-4">
+                    {complaint.description}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Bookings List */}
       {bookings.length > 0 ? (
         <div className="space-y-4">
@@ -556,6 +665,13 @@ The refund will be processed to your original payment method within 5-7 business
                         Rate Trip
                       </button>
                     )}
+                    <button
+                      onClick={() => handleComplaintNow(booking)}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md transition-colors text-sm font-medium shadow-sm"
+                    >
+                      <AlertCircle className="w-4 h-4" />
+                      Leave Complaint
+                    </button>
                     <button
                       onClick={() => {
                         setCancelBooking(booking);
@@ -1207,6 +1323,112 @@ The refund will be processed to your original payment method within 5-7 business
                   <Star className="w-4 h-4" />
                 )}
                 Submit Review
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Complaint Modal */}
+      {showComplaintModal && complaintBooking && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto">
+          <div className="relative w-full max-w-lg bg-[var(--color-card)] rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200 my-auto">
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-[var(--color-border)] flex items-center justify-between bg-[var(--color-background)]">
+              <div>
+                <h3 className="text-xl font-bold text-[var(--color-text-primary)]">Submit Complaint</h3>
+                <p className="text-sm text-[var(--color-text-secondary)]">{complaintBooking.packageName}</p>
+              </div>
+              <button
+                onClick={() => setShowComplaintModal(false)}
+                className="p-2 hover:bg-black/5 rounded-full transition-colors"
+                disabled={submittingComplaint}
+              >
+                <X className="w-5 h-5 text-[var(--color-text-secondary)]" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-6">
+              {/* Item Selector */}
+              <div>
+                <label className="block text-sm font-semibold text-[var(--color-text-secondary)] mb-2 uppercase tracking-wider">
+                  What is your complaint about?
+                </label>
+                <div className="grid grid-cols-1 gap-2 max-h-[200px] overflow-y-auto pr-2 custom-scrollbar">
+                  <button
+                    onClick={() => setComplaintDetails(prev => ({ ...prev, selectedItem: 'package' }))}
+                    className={`flex items-center justify-between p-3 rounded-lg border-2 transition-all ${complaintDetails.selectedItem === 'package'
+                      ? 'border-red-500 bg-red-500/10 text-red-700'
+                      : 'border-transparent bg-[var(--color-background)] text-[var(--color-text-primary)] hover:bg-black/5 border-[var(--color-border)]'
+                      }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Package className="w-5 h-5" />
+                      <span className="font-medium">Entire Package</span>
+                    </div>
+                    {complaintDetails.selectedItem === 'package' && <div className="w-2 h-2 rounded-full bg-red-500" />}
+                  </button>
+
+                  {packageItems.map(item => (
+                    <button
+                      key={`${item.item_type}:${item.instance_id || item.item_id}`}
+                      onClick={() => setComplaintDetails(prev => ({ ...prev, selectedItem: `${item.item_type}:${item.instance_id || item.item_id}` }))}
+                      className={`flex items-center justify-between p-3 rounded-lg border-2 transition-all ${complaintDetails.selectedItem === `${item.item_type}:${item.instance_id || item.item_id}`
+                        ? 'border-red-500 bg-red-500/10 text-red-700'
+                        : 'border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-text-primary)] hover:bg-black/5'
+                        }`}
+                    >
+                      <div className="flex items-center gap-3 text-left">
+                        {item.item_type === 'service' ? <Plane className="w-5 h-5 text-red-500" /> :
+                          item.item_type === 'hotel' ? <MapPin className="w-5 h-5 text-red-500" /> :
+                            item.item_type === 'package' ? <Package className="w-5 h-5 text-red-500" /> :
+                              <ShoppingBag className="w-5 h-5 text-red-500" />}
+                        <div>
+                          <p className="font-medium leading-tight">{item.item_name}</p>
+                          <p className="text-xs opacity-70 capitalize">{item.item_type}</p>
+                        </div>
+                      </div>
+                      {complaintDetails.selectedItem === `${item.item_type}:${item.instance_id || item.item_id}` && <div className="w-2 h-2 rounded-full bg-red-500" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block text-sm font-semibold text-[var(--color-text-secondary)] mb-2 uppercase tracking-wider">
+                  Complaint Description
+                </label>
+                <textarea
+                  value={complaintDetails.description}
+                  onChange={(e) => setComplaintDetails(prev => ({ ...prev, description: e.target.value }))}
+                  className="w-full p-3 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent min-h-[120px] text-black placeholder:text-gray-500"
+                  placeholder="Please describe the issue in detail..."
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 bg-[var(--color-background)] border-t border-[var(--color-border)] flex gap-3">
+              <button
+                onClick={() => setShowComplaintModal(false)}
+                className="flex-1 px-4 py-2 border border-[var(--color-border)] text-[var(--color-text-primary)] rounded-lg hover:bg-black/5 transition-colors font-medium"
+                disabled={submittingComplaint}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmitComplaint}
+                disabled={submittingComplaint}
+                className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-400 text-white rounded-lg transition-colors font-medium shadow-md flex items-center justify-center gap-2"
+              >
+                {submittingComplaint ? (
+                  <Clock className="w-4 h-4 animate-spin" />
+                ) : (
+                  <AlertCircle className="w-4 h-4" />
+                )}
+                Submit Complaint
               </button>
             </div>
           </div>

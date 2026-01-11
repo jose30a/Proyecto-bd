@@ -492,6 +492,34 @@ export async function submitReview(data: {
   ]);
 }
 
+export async function submitComplaint(data: {
+  description: string;
+  userId: number;
+  packageId?: number;
+  serPaqId?: number;
+  hotelId?: number;
+}): Promise<void> {
+  await callProcedure('submit_complaint', [
+    data.description,
+    { value: data.userId, type: 'INTEGER' },
+    { value: data.packageId || null, type: 'INTEGER' },
+    { value: data.serPaqId || null, type: 'INTEGER' },
+    { value: data.hotelId || null, type: 'INTEGER' }
+  ]);
+}
+
+export async function getUserComplaints(userId: number): Promise<any[]> {
+  const rows = await callFunction<any>('get_user_complaints', [
+    { value: userId, type: 'INTEGER' }
+  ]);
+  return rows.map((r: any) => ({
+    id: r.p_cod,
+    description: r.p_description,
+    status: r.p_status,
+    itemName: r.p_item_name
+  }));
+}
+
 // ==================== Promotions ====================
 
 export interface PromotionItem {
@@ -1006,6 +1034,13 @@ export interface Review {
   r_date: string;
 }
 
+export interface HotelWithRating {
+  h_cod: number;
+  h_nombre: string;
+  h_avg_rating: number;
+  h_review_count: number;
+}
+
 /**
  * Get all packages with their average ratings
  */
@@ -1031,6 +1066,19 @@ export async function getPackageServicesWithRatings(packageId: number): Promise<
 }
 
 /**
+ * Get hotels for a package with their ratings
+ */
+export async function getPackageHotelsWithRatings(packageId: number): Promise<HotelWithRating[]> {
+  const result = await callFunction<HotelWithRating>('get_package_hotels_with_ratings', [
+    { value: packageId, type: 'INTEGER' }
+  ]);
+  return result.map(r => ({
+    ...r,
+    h_avg_rating: Number(r.h_avg_rating) || 0
+  }));
+}
+
+/**
  * Get reviews for a package
  */
 export async function getPackageReviews(packageId: number): Promise<Review[]> {
@@ -1046,6 +1094,16 @@ export async function getPackageReviews(packageId: number): Promise<Review[]> {
 export async function getServiceReviews(serviceId: number): Promise<Review[]> {
   const result = await callFunction<Review>('get_service_reviews', [
     { value: serviceId, type: 'INTEGER' }
+  ]);
+  return result;
+}
+
+/**
+ * Get reviews for a hotel
+ */
+export async function getHotelReviews(hotelId: number): Promise<Review[]> {
+  const result = await callFunction<Review>('get_hotel_reviews', [
+    { value: hotelId, type: 'INTEGER' }
   ]);
   return result;
 }
