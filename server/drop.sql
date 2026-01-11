@@ -97,7 +97,11 @@ DROP PROCEDURE IF EXISTS upsert_package(
 ) CASCADE;
 DROP PROCEDURE IF EXISTS delete_package(INTEGER) CASCADE;
 DROP FUNCTION IF EXISTS get_package_details(INTEGER) CASCADE;
+DROP FUNCTION IF EXISTS get_all_airlines() CASCADE;
+DROP FUNCTION IF EXISTS get_airline_contacts(INTEGER) CASCADE;
+DROP PROCEDURE IF EXISTS upsert_airline(INTEGER, VARCHAR, VARCHAR, INTEGER) CASCADE;
 DROP FUNCTION IF EXISTS get_all_promotions() CASCADE;
+DROP PROCEDURE IF EXISTS upsert_promotion(INTEGER, VARCHAR, INTEGER) CASCADE;
 -- Old versions are handled in general drops or specific section below
 -- Old airline and promotion drops moved/consolidated
 DROP PROCEDURE IF EXISTS delete_airline(INTEGER) CASCADE;
@@ -337,3 +341,23 @@ DROP FUNCTION IF EXISTS get_all_packages_with_ratings() CASCADE;
 DROP FUNCTION IF EXISTS get_package_services_with_ratings(INTEGER) CASCADE;
 DROP FUNCTION IF EXISTS get_package_reviews(INTEGER) CASCADE;
 DROP FUNCTION IF EXISTS get_service_reviews(INTEGER) CASCADE;
+DROP FUNCTION IF EXISTS get_package_hotels_with_ratings(INTEGER) CASCADE;
+DROP FUNCTION IF EXISTS get_hotel_reviews(INTEGER) CASCADE;
+DROP FUNCTION IF EXISTS cancel_package_with_refund(INTEGER, INTEGER) CASCADE;
+DROP PROCEDURE IF EXISTS submit_review(
+    TEXT,
+    INTEGER,
+    INTEGER,
+    INTEGER,
+    INTEGER,
+    INTEGER,
+    INTEGER
+) CASCADE;
+DROP PROCEDURE IF EXISTS submit_complaint(
+    TEXT,
+    INTEGER,
+    INTEGER,
+    INTEGER,
+    INTEGER
+) CASCADE;
+DROP FUNCTION IF EXISTS get_user_complaints(INTEGER) CASCADE;
