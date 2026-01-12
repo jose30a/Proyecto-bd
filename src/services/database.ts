@@ -540,6 +540,25 @@ export async function deletePromotion(id: number): Promise<void> {
   await callProcedure('delete_promotion', [id]);
 }
 
+export interface PaymentPlan {
+  id: number;
+  name: string;
+  initialPercentage: number;
+  frequency: string;
+  installments: number;
+}
+
+export async function getPaymentPlans(): Promise<PaymentPlan[]> {
+  const rows = await callFunction<any>('get_payment_plans', []);
+  return rows.map((r: any) => ({
+    id: r.p_cod,
+    name: r.p_nombre_pla,
+    initialPercentage: Number(r.p_porcen_inicial),
+    frequency: r.p_frecuencia_pago,
+    installments: r.p_cuotas_pla
+  }));
+}
+
 
 // --- Promotion-Service Assignment Functions ---
 
@@ -842,6 +861,7 @@ export async function processPayment(
     zelleTime?: string;
     // Milla
     miles?: number;
+    planId?: number;
   }
 ): Promise<void> {
 
@@ -908,7 +928,8 @@ export async function processPayment(
     { value: null, type: 'VARCHAR' }, // zelle_phone
     { value: null, type: 'VARCHAR' }, // cedula
     { value: null, type: 'VARCHAR' }, // phone_number
-    { value: details.usdtWallet || null, type: 'VARCHAR' } // p_usdt_id (ADDED: Using usdtWallet as ID if usdt_id not explicit)
+    { value: details.usdtWallet || null, type: 'VARCHAR' }, // p_usdt_id (ADDED: Using usdtWallet as ID if usdt_id not explicit)
+    { value: details.planId || null, type: 'INTEGER' }
   ]);
 }
 
@@ -974,6 +995,12 @@ export async function addPassengersToBooking(
       { value: passenger.dob, type: 'DATE' }
     ]);
   }
+}
+
+export async function getBookingPassengers(bookingId: number): Promise<PassengerData[]> {
+  return callFunction<any>('get_booking_passengers', [
+    { value: bookingId, type: 'INTEGER' }
+  ]);
 }
 
 /**

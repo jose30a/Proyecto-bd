@@ -145,7 +145,8 @@ CREATE TABLE plan_pago (
     cod SERIAL PRIMARY KEY,
     nombre_pla VARCHAR(50) NOT NULL,
     porcen_inicial DECIMAL(5, 2) NOT NULL,
-    frecuencia_pago VARCHAR(20) NOT NULL
+    frecuencia_pago VARCHAR(20) NOT NULL,
+    cuotas_pla INTEGER NOT NULL DEFAULT 1
 );
 CREATE TABLE paquete_turistico (
     cod SERIAL PRIMARY KEY,
@@ -745,7 +746,22 @@ CREATE OR REPLACE FUNCTION get_all_promotions() RETURNS TABLE (
 SELECT cod,
     tipo_pro,
     porcen_descuento
-FROM promocion
+ORDER BY cod;
+END;
+$$ LANGUAGE plpgsql;
+CREATE OR REPLACE FUNCTION get_payment_plans() RETURNS TABLE (
+        p_cod INTEGER,
+        p_nombre_pla VARCHAR,
+        p_porcen_inicial DECIMAL,
+        p_frecuencia_pago VARCHAR,
+        p_cuotas_pla INTEGER
+    ) AS $$ BEGIN RETURN QUERY
+SELECT cod,
+    nombre_pla,
+    porcen_inicial,
+    frecuencia_pago,
+    cuotas_pla
+FROM plan_pago
 ORDER BY cod;
 END;
 $$ LANGUAGE plpgsql;
@@ -952,8 +968,13 @@ FROM plan_pago
 WHERE nombre_pla = 'Default'
 LIMIT 1;
 IF v_plan IS NULL THEN
-INSERT INTO plan_pago (nombre_pla, porcen_inicial, frecuencia_pago)
-VALUES ('Default', 0, 'One-time')
+INSERT INTO plan_pago (
+        nombre_pla,
+        porcen_inicial,
+        frecuencia_pago,
+        cuotas_pla
+    )
+VALUES ('Default', 0, 'One-time', 0)
 RETURNING cod INTO v_plan;
 END IF;
 NEW.fk_cod_plan_pago := v_plan;
@@ -1958,6 +1979,29 @@ END IF;
 END LOOP;
 END;
 $$ LANGUAGE plpgsql;
+CREATE OR REPLACE FUNCTION get_booking_passengers(p_booking_id INTEGER) RETURNS TABLE (
+        firstName VARCHAR,
+        lastName VARCHAR,
+        passportNumber VARCHAR,
+        dob DATE
+    ) AS $$ BEGIN RETURN QUERY
+SELECT DISTINCT nombre_pasajero as firstName,
+    apellido_pasajero as lastName,
+    n_pasaporte_pasajero as passportNumber,
+    fecha_nacimiento_pasajero as dob
+FROM ser_paq
+WHERE fk_paquete = p_booking_id
+    AND nombre_pasajero IS NOT NULL;
+END;
+$$ LANGUAGE plpgsql;
+CREATE OR REPLACE FUNCTION get_package_total_price(p_package_id INTEGER) RETURNS DECIMAL AS $$
+DECLARE v_total DECIMAL;
+BEGIN
+SELECT SUM(costo) INTO v_total
+FROM get_package_details(p_package_id);
+RETURN COALESCE(v_total, 0);
+END;
+$$ LANGUAGE plpgsql;
 CREATE OR REPLACE PROCEDURE process_payment(
         p_user_id INTEGER,
         p_package_id INTEGER,
@@ -1996,10 +2040,19 @@ CREATE OR REPLACE PROCEDURE process_payment(
         p_zelle_phone VARCHAR,
         p_cedula VARCHAR,
         p_phone VARCHAR,
-        p_usdt_id VARCHAR DEFAULT NULL
+        p_usdt_id VARCHAR DEFAULT NULL,
+        p_plan_id INTEGER DEFAULT NULL
     ) AS $$
 DECLARE v_method_id INTEGER;
-BEGIN -- 1. Create Payment Method Record
+v_total_price DECIMAL;
+v_total_paid DECIMAL;
+BEGIN -- 0. Update Plan if provided
+IF p_plan_id IS NOT NULL THEN
+UPDATE paquete_turistico
+SET fk_cod_plan_pago = p_plan_id
+WHERE cod = p_package_id;
+END IF;
+-- 1. Create Payment Method Record
 INSERT INTO metodoDePago (
         descripcion_met,
         fk_usuario,
@@ -2077,10 +2130,21 @@ INSERT INTO pago (
         fk_metodo_pago
     )
 VALUES (p_amount, NOW(), p_package_id, v_method_id);
--- 3. Update Package Status
+-- 3. Calculate Total Price and Total Paid
+v_total_price := get_package_total_price(p_package_id);
+SELECT SUM(monto_pago) INTO v_total_paid
+FROM pago
+WHERE fk_cod_paquete = p_package_id;
+-- 4. Update Package Status based on total paid
+IF v_total_paid >= v_total_price THEN
 UPDATE paquete_turistico
 SET estado_paq = 'Confirmed'
 WHERE cod = p_package_id;
+ELSE
+UPDATE paquete_turistico
+SET estado_paq = 'Partially Paid'
+WHERE cod = p_package_id;
+END IF;
 END;
 $$ LANGUAGE plpgsql;
 CREATE OR REPLACE FUNCTION get_user_bookings(p_user_id INTEGER) RETURNS TABLE (
@@ -2091,6 +2155,8 @@ CREATE OR REPLACE FUNCTION get_user_bookings(p_user_id INTEGER) RETURNS TABLE (
         duration INTEGER,
         passengers INTEGER,
         status VARCHAR,
+        paidAmount DECIMAL,
+        planId INTEGER,
         totalPrice DECIMAL,
         composition VARCHAR,
         bookingDate TIMESTAMP
@@ -2103,59 +2169,12 @@ SELECT p.cod AS id,
     COUNT(DISTINCT sp.nombre_pasajero)::INTEGER AS passengers,
     p.estado_paq AS status,
     (
-        COALESCE(
-            (
-                SELECT SUM(costo_ser)
-                FROM ser_paq
-                WHERE fk_paquete = p.cod
-            ),
-            0
-        ) + COALESCE(
-            (
-                SELECT SUM(costo_reserva_hot)
-                FROM hot_paq
-                WHERE fk_paquete = p.cod
-            ),
-            0
-        ) + COALESCE(
-            (
-                SELECT SUM(costo_reserva_res)
-                FROM res_paq
-                WHERE fk_paquete = p.cod
-            ),
-            0
-        ) + COALESCE(
-            (
-                SELECT SUM(
-                        COALESCE(
-                            (
-                                SELECT SUM(child_sp.costo_ser)
-                                FROM ser_paq child_sp
-                                WHERE child_sp.fk_paquete = pp.fk_paquete_hijo
-                            ),
-                            0
-                        ) + COALESCE(
-                            (
-                                SELECT SUM(costo_reserva_hot)
-                                FROM hot_paq
-                                WHERE fk_paquete = pp.fk_paquete_hijo
-                            ),
-                            0
-                        ) + COALESCE(
-                            (
-                                SELECT SUM(costo_reserva_res)
-                                FROM res_paq
-                                WHERE fk_paquete = pp.fk_paquete_hijo
-                            ),
-                            0
-                        )
-                    )
-                FROM paq_paq pp
-                WHERE pp.fk_paquete_padre = p.cod
-            ),
-            0
-        )
-    )::DECIMAL AS totalPrice,
+        SELECT COALESCE(SUM(monto_pago), 0)
+        FROM pago
+        WHERE fk_cod_paquete = p.cod
+    )::DECIMAL AS paidAmount,
+    p.fk_cod_plan_pago AS planId,
+    get_package_total_price(p.cod) AS totalPrice,
     COALESCE(
         (
             SELECT STRING_AGG(

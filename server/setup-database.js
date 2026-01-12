@@ -43,19 +43,64 @@ async function runSqlFile(filePath, description = '') {
       console.log(`   ${description}`);
     }
 
-    const sql = fs.readFileSync(filePath, 'utf8');
+    const content = fs.readFileSync(filePath, 'utf8');
 
-    if (!sql.trim()) {
+    if (!content.trim()) {
       console.log(`⚠️  File is empty, skipping...`);
       return;
     }
 
-    console.log(`⚙️  Executing SQL statements...`);
-    await pool.query(sql);
+    // Improved splitter that handles $$ blocks
+    const statements = [];
+    let current = '';
+    let inDollar = false;
+
+    // Split by lines to avoid regex issues with large files
+    const lines = content.split('\n');
+    for (let line of lines) {
+      const trimmed = line.trim();
+
+      // Check for dollar quoting toggle
+      if (trimmed.includes('$$')) {
+        // Simple toggle for $$ - might need more logic for named dollars like $body$
+        // but $$ is most common here
+        const count = (trimmed.match(/\$\$/g) || []).length;
+        if (count % 2 !== 0) {
+          inDollar = !inDollar;
+        }
+      }
+
+      current += line + '\n';
+
+      if (!inDollar && trimmed.endsWith(';')) {
+        statements.push(current);
+        current = '';
+      }
+    }
+
+    // Add any remaining content
+    if (current.trim()) {
+      statements.push(current);
+    }
+
+    console.log(`⚙️  Executing ${statements.length} SQL statements...`);
+
+    for (let i = 0; i < statements.length; i++) {
+      const stmt = statements[i].trim();
+      if (!stmt) continue;
+
+      try {
+        await pool.query(stmt);
+      } catch (err) {
+        console.error(`❌ Error in statement ${i + 1} of ${filePath}:`, err.message);
+        // console.error('Snippet:', stmt.substring(0, 200));
+        throw err;
+      }
+    }
 
     console.log(`✅ Successfully executed: ${filePath}`);
   } catch (error) {
-    console.error(`❌ Error executing ${filePath}:`, error.message);
+    console.error(`❌ Failed to execute ${filePath}:`, error.message);
     throw error;
   }
 }

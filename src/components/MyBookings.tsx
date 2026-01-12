@@ -3,7 +3,7 @@ import { Calendar, MapPin, Package, Clock, CreditCard, ChevronRight, AlertCircle
 import { ImageWithFallback } from './figma/ImageWithFallback';
 import { getUserBookings, getCurrentUser, toggleWishlist, getWishlist, addPassengersToBooking, processPayment, getPackageDetails, submitReview, PackageDetailItem, cancelPackage } from '../services/database';
 
-type BookingStatus = 'Confirmed' | 'Pending Payment' | 'Cancelled';
+type BookingStatus = 'Confirmed' | 'Pending Payment' | 'Cancelled' | 'Partially Paid';
 
 interface Booking {
   id: number;
@@ -18,6 +18,8 @@ interface Booking {
   bookingDate: string;
   bookingCode: string;
   composition?: string;
+  paidAmount?: number;
+  planId?: number;
 }
 
 interface Passenger {
@@ -85,6 +87,9 @@ export function MyBookings() {
   const [paymentDetails, setPaymentDetails] = useState<PaymentDetails>({
     method: 'TarjetaCreditoDebito',
   });
+  const [paymentPlans, setPaymentPlans] = useState<any[]>([]);
+  const [isFinancing, setIsFinancing] = useState(false);
+  const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null);
 
   // Rating modal state
   const [showRatingModal, setShowRatingModal] = useState(false);
@@ -115,7 +120,18 @@ export function MyBookings() {
 
   useEffect(() => {
     loadData();
+    loadPaymentPlans();
   }, []);
+
+  const loadPaymentPlans = async () => {
+    try {
+      const { getPaymentPlans } = await import('../services/database');
+      const plans = await getPaymentPlans();
+      setPaymentPlans(plans);
+    } catch (err) {
+      console.error('Failed to load payment plans', err);
+    }
+  };
 
   const loadBookings = () => loadData();
 
@@ -151,7 +167,9 @@ export function MyBookings() {
           passengers: b.passengers || 1,
           bookingDate: b.bookingDate ? new Date(b.bookingDate).toISOString().split('T')[0] : (b.booking_date ? new Date(b.booking_date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0]),
           bookingCode: `BK-2025-${b.id.toString().padStart(3, '0')}`,
-          composition: b.composition
+          composition: b.composition,
+          paidAmount: parseFloat(b.paidAmount || b.paidamount || 0),
+          planId: b.planId || b.planid
         }));
         setBookings(userBookings);
 
@@ -204,16 +222,48 @@ export function MyBookings() {
     }
   };
 
+  const calculateAmount = (booking: Booking | null) => {
+    if (!booking) return 0;
+
+    // Check if the booking already has an active financing plan (more than 0 installments)
+    const currentPlan = paymentPlans.find((p: any) => Number(p.id) === Number(booking.planId));
+    const hasActiveFinancing = currentPlan && currentPlan.installments > 0 && currentPlan.name !== 'Default';
+
+    // Priority 1: New financing selection (only if not already in an active financing plan)
+    if (!hasActiveFinancing && isFinancing && selectedPlanId) {
+      const plan = paymentPlans.find((p: any) => Number(p.id) === Number(selectedPlanId));
+      if (plan) {
+        // For new financing, we pay the initial percentage
+        return booking.totalPrice * (plan.initialPercentage / 100);
+      }
+    }
+
+    // Priority 2: Existing active financing
+    if (hasActiveFinancing) {
+      const plan = currentPlan;
+      // For installment payments, we pay (remaining balance after initial) / installments
+      const baseRemaining = booking.totalPrice * (1 - (plan.initialPercentage / 100));
+      return baseRemaining / plan.installments;
+    }
+
+    // Priority 3: Default (Remaining balance for 'Contado', 'Default', or no plan)
+    return booking.totalPrice - (booking.paidAmount || 0);
+  };
+
   const handleSubmitPayment = async () => {
     if (!selectedBooking) return;
 
-    // Validate passengers
-    const invalidPassenger = passengers.find((p: Passenger) =>
-      !p.firstName.trim() || !p.lastName.trim() || !p.passportNumber.trim() || !p.dob
-    );
-    if (invalidPassenger) {
-      alert('Please fill in all passenger details');
-      return;
+    const isPartiallyPaid = selectedBooking.status === 'Partially Paid';
+
+    // Validate passengers only if NOT partially paid
+    if (!isPartiallyPaid) {
+      const invalidPassenger = passengers.find((p: Passenger) =>
+        !p.firstName?.trim() || !p.lastName?.trim() || !p.passportNumber?.trim() || !p.dob
+      );
+      if (invalidPassenger) {
+        alert('Please fill in all passenger details');
+        return;
+      }
     }
 
     // Validate payment details based on method
@@ -232,50 +282,31 @@ export function MyBookings() {
         return;
       }
 
-      // Add passeng to booking first
-      await addPassengersToBooking(
-        selectedBooking.id,
-        passengers.map((p: Passenger) => ({
-          firstName: p.firstName,
-          lastName: p.lastName,
-          passportNumber: p.passportNumber,
-          dob: p.dob
-        }))
-      );
+      // Add passengers to booking only if NOT partially paid
+      if (!isPartiallyPaid) {
+        await addPassengersToBooking(
+          selectedBooking.id,
+          passengers.map((p: Passenger) => ({
+            firstName: p.firstName,
+            lastName: p.lastName,
+            passportNumber: p.passportNumber,
+            dob: p.dob
+          }))
+        );
+      }
+
+      const amountToPay = calculateAmount(selectedBooking);
 
       // Process payment
       await processPayment(
         user.cod,
         selectedBooking.id,
-        selectedBooking.totalPrice,
+        amountToPay,
         paymentDetails.method,
         `Payment for ${selectedBooking.packageName}`,
         {
-          cardNumber: paymentDetails.cardNumber,
-          cardHolder: paymentDetails.cardHolder,
-          expiryDate: paymentDetails.expiryDate,
-          cvv: paymentDetails.cvv,
-          cardBankName: paymentDetails.cardBankName,
-          checkNumber: paymentDetails.checkNumber,
-          checkHolder: paymentDetails.checkHolder,
-          checkBank: paymentDetails.checkBank,
-          checkIssueDate: paymentDetails.checkIssueDate,
-          checkAccountCode: paymentDetails.checkAccountCode,
-          depositNumber: paymentDetails.depositNumber,
-          depositBank: paymentDetails.depositBank,
-          depositDate: paymentDetails.depositDate,
-          depositReference: paymentDetails.depositReference,
-          transferNumber: paymentDetails.transferNumber,
-          transferTime: paymentDetails.transferTime,
-          pmReference: paymentDetails.pmReference,
-          pmTime: paymentDetails.pmTime,
-          usdtWallet: paymentDetails.usdtWallet,
-          usdtDate: paymentDetails.usdtDate,
-          usdtTime: paymentDetails.usdtTime,
-          zelleConfirmation: paymentDetails.zelleConfirmation,
-          zelleDate: paymentDetails.zelleDate,
-          zelleTime: paymentDetails.zelleTime,
-          miles: paymentDetails.miles
+          ...paymentDetails,
+          planId: isFinancing ? (selectedPlanId || undefined) : undefined
         }
       );
 
@@ -284,6 +315,8 @@ export function MyBookings() {
       setSelectedBooking(null);
       setPassengers([{ id: 1, firstName: '', lastName: '', passportNumber: '', dob: '' }]);
       setPaymentDetails({ method: 'TarjetaCreditoDebito' });
+      setIsFinancing(false);
+      setSelectedPlanId(null);
       await loadBookings(); // Refresh bookings list
     } catch (error) {
       console.error('Payment failed:', error);
@@ -297,6 +330,8 @@ export function MyBookings() {
         return 'bg-green-100 text-green-700 border-green-200';
       case 'Pending Payment':
         return 'bg-yellow-100 text-yellow-700 border-yellow-200';
+      case 'Partially Paid':
+        return 'bg-blue-100 text-blue-700 border-blue-200';
       case 'Cancelled':
         return 'bg-red-100 text-red-700 border-red-200';
     }
@@ -315,11 +350,37 @@ export function MyBookings() {
     alert(`View itinerary for booking ID: ${bookingId}`);
   };
 
-  const handlePayNow = (bookingId: number) => {
+  const [loadingPassengers, setLoadingPassengers] = useState(false);
+
+  const handlePayNow = async (bookingId: number) => {
     const booking = bookings.find((b: Booking) => b.id === bookingId);
     if (booking) {
       setSelectedBooking(booking);
+      setIsFinancing(false);
+      setSelectedPlanId(null);
       setShowPaymentModal(true);
+
+      try {
+        setLoadingPassengers(true);
+        const { getBookingPassengers } = await import('../services/database');
+        const existingPassengers = await getBookingPassengers(bookingId);
+        if (existingPassengers && existingPassengers.length > 0) {
+          setPassengers(existingPassengers.map((p, index) => ({
+            id: index + 1,
+            firstName: p.firstName,
+            lastName: p.lastName,
+            passportNumber: p.passportNumber,
+            dob: p.dob
+          })));
+        } else {
+          setPassengers([{ id: 1, firstName: '', lastName: '', passportNumber: '', dob: '' }]);
+        }
+      } catch (err) {
+        console.error('Failed to load passengers', err);
+        setPassengers([{ id: 1, firstName: '', lastName: '', passportNumber: '', dob: '' }]);
+      } finally {
+        setLoadingPassengers(false);
+      }
     }
   };
 
@@ -546,7 +607,7 @@ The refund will be processed to your original payment method within 5-7 business
             My Complaints
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {complaints.map((complaint) => (
+            {complaints.map((complaint: any) => (
               <div key={complaint.id} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                 <div className="p-6">
                   <div className="flex justify-between items-start mb-4">
@@ -632,7 +693,7 @@ The refund will be processed to your original payment method within 5-7 business
 
               {/* Action */}
               <div className="min-w-[120px] flex justify-end">
-                {booking.status === 'Pending Payment' ? (
+                {(booking.status === 'Pending Payment' || booking.status === 'Partially Paid') ? (
                   <button
                     onClick={() => handlePayNow(booking.id)}
                     className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white rounded-md transition-colors text-sm font-medium shadow-sm"
@@ -732,87 +793,110 @@ The refund will be processed to your original payment method within 5-7 business
             {/* Modal Content */}
             <div className="p-6 space-y-8">
               {/* Passenger Details Section */}
-              <div>
-                <h3 className="text-lg font-semibold text-[var(--color-text-primary)] mb-4">Passenger Details</h3>
-                <div className="space-y-4">
-                  {passengers.map((passenger: Passenger, index: number) => (
-                    <div key={passenger.id} className="border border-[var(--color-border)] rounded-lg p-6">
-                      <div className="flex items-center justify-between mb-4">
-                        <h4 className="text-[var(--color-text-primary)] flex items-center gap-2">
-                          <User className="w-5 h-5 text-[var(--color-primary-blue)]" />
-                          Passenger {index + 1}
-                        </h4>
-                        {passengers.length > 1 && (
-                          <button
-                            onClick={() => handleRemovePassenger(passenger.id)}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors"
-                            title="Remove passenger"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
-                            First Name <span className="text-red-500">*</span>
-                          </label>
-                          <input
-                            type="text"
-                            value={passenger.firstName}
-                            onChange={(e) => handlePassengerChange(passenger.id, 'firstName', e.target.value)}
-                            className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
-                            placeholder="Enter first name"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
-                            Last Name <span className="text-red-500">*</span>
-                          </label>
-                          <input
-                            type="text"
-                            value={passenger.lastName}
-                            onChange={(e) => handlePassengerChange(passenger.id, 'lastName', e.target.value)}
-                            className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
-                            placeholder="Enter last name"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
-                            Passport Number <span className="text-red-500">*</span>
-                          </label>
-                          <input
-                            type="text"
-                            value={passenger.passportNumber}
-                            onChange={(e) => handlePassengerChange(passenger.id, 'passportNumber', e.target.value)}
-                            className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
-                            placeholder="Enter passport number"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
-                            Date of Birth <span className="text-red-500">*</span>
-                          </label>
-                          <input
-                            type="date"
-                            value={passenger.dob}
-                            onChange={(e) => handlePassengerChange(passenger.id, 'dob', e.target.value)}
-                            className="w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-
-                  <button
-                    onClick={handleAddPassenger}
-                    className="w-full py-3 border-2 border-dashed border-[var(--color-border)] rounded-lg text-[var(--color-text-secondary)] hover:border-[var(--color-primary-blue)] hover:text-[var(--color-primary-blue)] transition-colors flex items-center justify-center gap-2"
-                  >
-                    <Plus className="w-5 h-5" />
-                    Add Another Passenger
-                  </button>
+              <div className="space-y-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-[var(--color-text-primary)]">Passenger Details</h3>
+                  {selectedBooking?.status === 'Partially Paid' && (
+                    <span className="text-xs font-medium px-2 py-1 bg-blue-50 text-blue-600 rounded-full border border-blue-100 italic">
+                      Information locked
+                    </span>
+                  )}
                 </div>
+
+                {loadingPassengers ? (
+                  <div className="flex flex-col items-center py-8 text-[var(--color-text-secondary)]">
+                    <div className="w-8 h-8 border-4 border-[var(--color-primary-blue)] border-t-transparent rounded-full animate-spin mb-2"></div>
+                    <p className="text-sm">Retrieving saved passengers...</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-4">
+                      {passengers.map((passenger: Passenger, index: number) => (
+                        <div key={passenger.id} className="border border-[var(--color-border)] rounded-lg p-6 group">
+                          <div className="flex items-center justify-between mb-4">
+                            <h4 className="text-[var(--color-text-primary)] font-medium flex items-center gap-2">
+                              <User className="w-5 h-5 text-[var(--color-primary-blue)]" />
+                              Passenger {index + 1}
+                            </h4>
+                            {passengers.length > 1 && selectedBooking?.status !== 'Partially Paid' && (
+                              <button
+                                onClick={() => handleRemovePassenger(passenger.id)}
+                                className="p-2 text-red-600 hover:bg-red-50 rounded transition-colors opacity-0 group-hover:opacity-100"
+                                title="Remove passenger"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                              <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
+                                First Name <span className="text-red-500">*</span>
+                              </label>
+                              <input
+                                type="text"
+                                value={passenger.firstName}
+                                onChange={(e) => handlePassengerChange(passenger.id, 'firstName', e.target.value)}
+                                disabled={selectedBooking?.status === 'Partially Paid'}
+                                className={`w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all ${selectedBooking?.status === 'Partially Paid' ? 'opacity-70 cursor-not-allowed grayscale-[0.3]' : ''}`}
+                                placeholder="Enter first name"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
+                                Last Name <span className="text-red-500">*</span>
+                              </label>
+                              <input
+                                type="text"
+                                value={passenger.lastName}
+                                onChange={(e) => handlePassengerChange(passenger.id, 'lastName', e.target.value)}
+                                disabled={selectedBooking?.status === 'Partially Paid'}
+                                className={`w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all ${selectedBooking?.status === 'Partially Paid' ? 'opacity-70 cursor-not-allowed grayscale-[0.3]' : ''}`}
+                                placeholder="Enter last name"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
+                                Passport Number <span className="text-red-500">*</span>
+                              </label>
+                              <input
+                                type="text"
+                                value={passenger.passportNumber}
+                                onChange={(e) => handlePassengerChange(passenger.id, 'passportNumber', e.target.value)}
+                                disabled={selectedBooking?.status === 'Partially Paid'}
+                                className={`w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all ${selectedBooking?.status === 'Partially Paid' ? 'opacity-70 cursor-not-allowed grayscale-[0.3]' : ''}`}
+                                placeholder="Enter passport number"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[var(--color-text-primary)] mb-2 text-sm">
+                                Date of Birth <span className="text-red-500">*</span>
+                              </label>
+                              <input
+                                type="date"
+                                value={passenger.dob ? (passenger.dob.includes('T') ? passenger.dob.split('T')[0] : passenger.dob) : ''}
+                                onChange={(e) => handlePassengerChange(passenger.id, 'dob', e.target.value)}
+                                disabled={selectedBooking?.status === 'Partially Paid'}
+                                className={`w-full px-4 py-2.5 bg-[var(--color-input-bg)] border border-[var(--color-border)] rounded-md focus:outline-none focus:ring-2 focus:ring-[var(--color-primary-blue)] focus:border-transparent transition-all ${selectedBooking?.status === 'Partially Paid' ? 'opacity-70 cursor-not-allowed grayscale-[0.3]' : ''}`}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {selectedBooking?.status !== 'Partially Paid' && (
+                      <button
+                        onClick={handleAddPassenger}
+                        className="w-full py-3 border-2 border-dashed border-[var(--color-border)] rounded-lg text-[var(--color-text-secondary)] hover:border-[var(--color-primary-blue)] hover:text-[var(--color-primary-blue)] transition-colors flex items-center justify-center gap-2 mt-4"
+                      >
+                        <Plus className="w-5 h-5" />
+                        Add Another Passenger
+                      </button>
+                    )}
+                  </>
+                )}
               </div>
 
               {/* Payment Method Section */}
@@ -1089,6 +1173,80 @@ The refund will be processed to your original payment method within 5-7 business
                     </div>
                   )}
                 </div>
+
+                {/* Financing Section */}
+                {selectedBooking.status !== 'Confirmed' && (
+                  <div className="mt-8 border-t border-[var(--color-border)] pt-8">
+                    <h3 className="text-lg font-semibold text-[var(--color-text-primary)] mb-4 flex items-center gap-2">
+                      Financing Options
+                    </h3>
+
+                    {(() => {
+                      const currentPlan = paymentPlans.find((p: any) => Number(p.id) === Number(selectedBooking.planId));
+                      // A plan is considered a "non-financing" plan if it has 0 installments 
+                      // or if it's the "Default" plan (which should now have 0, but we'll be extra safe)
+                      const isZeroInstallment = !currentPlan || currentPlan.installments === 0 || currentPlan.name === 'Default';
+
+                      if (isZeroInstallment) {
+                        return (
+                          <div className="space-y-4">
+                            <label className="flex items-center gap-3 p-4 bg-[var(--color-background)] rounded-lg cursor-pointer hover:bg-[var(--color-border)] transition-colors border border-[var(--color-border)]">
+                              <input
+                                type="checkbox"
+                                checked={isFinancing}
+                                onChange={(e) => {
+                                  setIsFinancing(e.target.checked);
+                                  if (!e.target.checked) setSelectedPlanId(null);
+                                }}
+                                className="w-5 h-5 rounded border-[var(--color-border)] text-[var(--color-primary-blue)] focus:ring-[var(--color-primary-blue)]"
+                              />
+                              <div>
+                                <span className="font-medium text-[var(--color-text-primary)]">Finance this trip</span>
+                                <p className="text-xs text-[var(--color-text-secondary)]">Pay an initial amount and installments instead of total price</p>
+                              </div>
+                            </label>
+
+                            {isFinancing && (
+                              <div className="ml-8 space-y-4 animate-in fade-in slide-in-from-top-2">
+                                <label className="block text-sm font-medium text-[var(--color-text-primary)] mb-2">
+                                  Select a Payment Plan
+                                </label>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                  {paymentPlans.filter((p: any) => p.initialPercentage < 100).map((plan: any) => (
+                                    <button
+                                      key={plan.id}
+                                      onClick={() => setSelectedPlanId(plan.id)}
+                                      className={`p-4 border-2 rounded-lg text-left transition-all ${selectedPlanId === plan.id
+                                        ? 'border-[var(--color-primary-blue)] bg-blue-50'
+                                        : 'border-[var(--color-border)] hover:border-[var(--color-primary-blue)]'
+                                        }`}
+                                    >
+                                      <div className="font-bold text-[var(--color-text-primary)]">{plan.name}</div>
+                                      <div className="text-xs text-[var(--color-text-secondary)]">
+                                        {plan.initialPercentage}% initial + {plan.installments} {plan.frequency}ly payments
+                                      </div>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      } else {
+                        return (
+                          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                            <p className="text-blue-800 text-sm font-medium">
+                              Ongoing Financing: {currentPlan?.name || 'Direct Financing'}
+                            </p>
+                            <p className="text-blue-600 text-xs mt-1">
+                              Remaining balance: ${(selectedBooking.totalPrice - (selectedBooking.paidAmount || 0)).toLocaleString()}
+                            </p>
+                          </div>
+                        );
+                      }
+                    })()}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1108,7 +1266,21 @@ The refund will be processed to your original payment method within 5-7 business
                 className="px-6 py-3 bg-green-600 hover:bg-green-700 text-white rounded-md transition-colors flex items-center gap-2"
               >
                 <CreditCard className="w-5 h-5" />
-                Complete Payment ${selectedBooking.totalPrice.toLocaleString()}
+                {(() => {
+                  const amount = calculateAmount(selectedBooking);
+                  let label = 'Complete Payment';
+
+                  if (selectedBooking.planId) {
+                    const plan = paymentPlans.find((p: any) => Number(p.id) === Number(selectedBooking.planId));
+                    if (plan && plan.installments > 0) {
+                      label = 'Pay Installment';
+                    }
+                  } else if (isFinancing && selectedPlanId) {
+                    label = 'Pay Initial Amount';
+                  }
+
+                  return `${label} $${amount.toLocaleString()}`;
+                })()}
               </button>
             </div>
           </div>
@@ -1223,7 +1395,7 @@ The refund will be processed to your original payment method within 5-7 business
                 </label>
                 <div className="grid grid-cols-1 gap-2 max-h-[200px] overflow-y-auto pr-2 custom-scrollbar">
                   <button
-                    onClick={() => setRatingDetails(prev => ({ ...prev, selectedItem: 'package' }))}
+                    onClick={() => setRatingDetails((prev: any) => ({ ...prev, selectedItem: 'package' }))}
                     className={`flex items-center justify-between p-3 rounded-lg border-2 transition-all ${ratingDetails.selectedItem === 'package'
                       ? 'border-purple-500 bg-purple-500/10 text-purple-700'
                       : 'border-transparent bg-[var(--color-background)] text-[var(--color-text-primary)] hover:bg-black/5 border-[var(--color-border)]'
@@ -1236,10 +1408,10 @@ The refund will be processed to your original payment method within 5-7 business
                     {ratingDetails.selectedItem === 'package' && <div className="w-2 h-2 rounded-full bg-purple-500" />}
                   </button>
 
-                  {packageItems.map(item => (
+                  {packageItems.map((item: any) => (
                     <button
                       key={`${item.item_type}:${item.instance_id || item.item_id}`}
-                      onClick={() => setRatingDetails(prev => ({ ...prev, selectedItem: `${item.item_type}:${item.instance_id || item.item_id}` }))}
+                      onClick={() => setRatingDetails((prev: any) => ({ ...prev, selectedItem: `${item.item_type}:${item.instance_id || item.item_id}` }))}
                       className={`flex items-center justify-between p-3 rounded-lg border-2 transition-all ${ratingDetails.selectedItem === `${item.item_type}:${item.instance_id || item.item_id}`
                         ? 'border-indigo-500 bg-indigo-500/10 text-indigo-700'
                         : 'border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-text-primary)] hover:bg-black/5'
@@ -1270,7 +1442,7 @@ The refund will be processed to your original payment method within 5-7 business
                   {[1, 2, 3, 4, 5].map((star) => (
                     <button
                       key={star}
-                      onClick={() => setRatingDetails(prev => ({ ...prev, rating: star }))}
+                      onClick={() => setRatingDetails((prev: any) => ({ ...prev, rating: star }))}
                       className="p-1 transition-transform hover:scale-125 focus:outline-none"
                     >
                       <Star
@@ -1297,7 +1469,7 @@ The refund will be processed to your original payment method within 5-7 business
                 </label>
                 <textarea
                   value={ratingDetails.description}
-                  onChange={(e) => setRatingDetails(prev => ({ ...prev, description: e.target.value }))}
+                  onChange={(e) => setRatingDetails((prev: any) => ({ ...prev, description: e.target.value }))}
                   className="w-full p-3 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent min-h-[100px] text-black placeholder:text-gray-500"
                   placeholder="Tell us about your experience..."
                 />
@@ -1328,6 +1500,7 @@ The refund will be processed to your original payment method within 5-7 business
           </div>
         </div>
       )}
+
       {/* Complaint Modal */}
       {showComplaintModal && complaintBooking && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto">
@@ -1356,7 +1529,7 @@ The refund will be processed to your original payment method within 5-7 business
                 </label>
                 <div className="grid grid-cols-1 gap-2 max-h-[200px] overflow-y-auto pr-2 custom-scrollbar">
                   <button
-                    onClick={() => setComplaintDetails(prev => ({ ...prev, selectedItem: 'package' }))}
+                    onClick={() => setComplaintDetails((prev: any) => ({ ...prev, selectedItem: 'package' }))}
                     className={`flex items-center justify-between p-3 rounded-lg border-2 transition-all ${complaintDetails.selectedItem === 'package'
                       ? 'border-red-500 bg-red-500/10 text-red-700'
                       : 'border-transparent bg-[var(--color-background)] text-[var(--color-text-primary)] hover:bg-black/5 border-[var(--color-border)]'
@@ -1369,10 +1542,10 @@ The refund will be processed to your original payment method within 5-7 business
                     {complaintDetails.selectedItem === 'package' && <div className="w-2 h-2 rounded-full bg-red-500" />}
                   </button>
 
-                  {packageItems.map(item => (
+                  {packageItems.map((item: any) => (
                     <button
                       key={`${item.item_type}:${item.instance_id || item.item_id}`}
-                      onClick={() => setComplaintDetails(prev => ({ ...prev, selectedItem: `${item.item_type}:${item.instance_id || item.item_id}` }))}
+                      onClick={() => setComplaintDetails((prev: any) => ({ ...prev, selectedItem: `${item.item_type}:${item.instance_id || item.item_id}` }))}
                       className={`flex items-center justify-between p-3 rounded-lg border-2 transition-all ${complaintDetails.selectedItem === `${item.item_type}:${item.instance_id || item.item_id}`
                         ? 'border-red-500 bg-red-500/10 text-red-700'
                         : 'border-[var(--color-border)] bg-[var(--color-background)] text-[var(--color-text-primary)] hover:bg-black/5'
@@ -1401,7 +1574,7 @@ The refund will be processed to your original payment method within 5-7 business
                 </label>
                 <textarea
                   value={complaintDetails.description}
-                  onChange={(e) => setComplaintDetails(prev => ({ ...prev, description: e.target.value }))}
+                  onChange={(e) => setComplaintDetails((prev: any) => ({ ...prev, description: e.target.value }))}
                   className="w-full p-3 bg-white border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent min-h-[120px] text-black placeholder:text-gray-500"
                   placeholder="Please describe the issue in detail..."
                   required

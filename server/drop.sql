@@ -101,6 +101,7 @@ DROP FUNCTION IF EXISTS get_all_airlines() CASCADE;
 DROP FUNCTION IF EXISTS get_airline_contacts(INTEGER) CASCADE;
 DROP PROCEDURE IF EXISTS upsert_airline(INTEGER, VARCHAR, VARCHAR, INTEGER) CASCADE;
 DROP FUNCTION IF EXISTS get_all_promotions() CASCADE;
+DROP FUNCTION IF EXISTS get_payment_plans() CASCADE;
 DROP PROCEDURE IF EXISTS upsert_promotion(INTEGER, VARCHAR, INTEGER) CASCADE;
 -- Old versions are handled in general drops or specific section below
 -- Old airline and promotion drops moved/consolidated

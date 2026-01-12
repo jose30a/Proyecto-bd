@@ -1,4 +1,4 @@
-/*
+﻿/*
  * SCRIPT FINAL V6 - DATA REFINEMENT
  * 1. Added Cruise Services (Cruceros).
  * 2. Enhanced Reviews with specific text.
@@ -61,16 +61,16 @@ VALUES ('America', 'Continente', NULL),
 -- Países
 INSERT INTO lugar (nombre_lug, tipo_lug, fk_cod_lug_padre)
 VALUES ('Estados Unidos', 'Pais', 1),
-    ('México', 'Pais', 1),
+    ('Mexico', 'Pais', 1),
     ('Brasil', 'Pais', 1),
     ('Argentina', 'Pais', 1),
-    ('Canadá', 'Pais', 1),
-    ('España', 'Pais', 2),
+    ('Canada', 'Pais', 1),
+    ('Espana', 'Pais', 2),
     ('Francia', 'Pais', 2),
     ('Italia', 'Pais', 2),
     ('Alemania', 'Pais', 2),
     ('Reino Unido', 'Pais', 2),
-    ('Japón', 'Pais', 3),
+    ('Japon', 'Pais', 3),
     ('China', 'Pais', 3),
     ('India', 'Pais', 3),
     ('Tailandia', 'Pais', 3),
@@ -847,17 +847,19 @@ VALUES ('USD', 45.5, NOW()),
 -- =============================================
 -- 7. SERVICIOS Y PAQUETES (MIXED TYPES INCL CRUISES)
 -- =============================================
-INSERT INTO plan_pago (nombre_pla, porcen_inicial, frecuencia_pago)
-VALUES ('Contado', 100, 'Unica'),
-    ('Credito', 30, 'Mensual'),
-    ('Trimestral', 25, 'Trimestral'),
-    ('Semestral', 50, 'Semestral'),
-    ('Anual', 10, 'Mensual'),
-    ('Flash Deal', 90, 'Unica'),
-    ('Vencedor', 40, 'Quincenal'),
-    ('Standard', 20, 'Mensual'),
-    ('Premium', 15, 'Mensual'),
-    ('Eco-Flex', 5, 'Semanal');
+INSERT INTO plan_pago (
+        nombre_pla,
+        porcen_inicial,
+        frecuencia_pago,
+        cuotas_pla
+    )
+VALUES ('Contado', 100, 'Unica', 0),
+    ('Premium (6m)', 30, 'Mensual', 5),
+    ('Basico (12m)', 20, 'Mensual', 12),
+    ('Semanal (8w)', 15, 'Semanal', 8),
+    ('Flash Deal', 90, 'Unica', 0),
+    ('Standard', 20, 'Mensual', 4),
+    ('Premium', 15, 'Mensual', 12);
 -- 7.1 Vuelos (Flights)
 INSERT INTO servicio (
         nombre_ser,
@@ -1651,3 +1653,14 @@ FROM usuario u,
     JOIN servicio s ON sp.fk_servicio = s.cod
 WHERE s.nombre_ser LIKE '%Alquiler%'
 LIMIT 1;
+-- =============================================
+-- 12. PLANES DE PAGO
+-- =============================================
+-- RE-UPDATE packages to have a default plan (Contado)
+UPDATE paquete_turistico
+SET fk_cod_plan_pago = (
+        SELECT cod
+        FROM plan_pago
+        WHERE nombre_pla = 'Contado'
+        LIMIT 1
+    );
