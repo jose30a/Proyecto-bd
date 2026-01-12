@@ -1651,3 +1651,43 @@ FROM usuario u,
     JOIN servicio s ON sp.fk_servicio = s.cod
 WHERE s.nombre_ser LIKE '%Alquiler%'
 LIMIT 1;
+-- =============================================
+--  CREATE POSTGRESQL USERS FOR EXISTING USUARIOS
+-- =============================================
+
+-- Create PostgreSQL database users for all existing users in the usuario table
+DO $$
+DECLARE
+    user_record RECORD;
+    v_role_name VARCHAR;
+    v_result BOOLEAN;
+BEGIN
+    RAISE NOTICE 'Starting PostgreSQL user creation for existing usuarios...';
+    
+    FOR user_record IN 
+        SELECT u.cod, u.password_usu, r.nombre_rol 
+        FROM usuario u 
+        JOIN rol r ON u.fk_cod_rol = r.cod
+        ORDER BY u.cod
+    LOOP
+        BEGIN
+            -- Attempt to create database user
+            SELECT create_db_user_for_app_user(
+                user_record.cod,
+                user_record.nombre_rol,
+                user_record.password_usu
+            ) INTO v_result;
+            
+            IF v_result THEN
+                RAISE NOTICE 'Successfully created database user for usuario ID %', user_record.cod;
+            ELSE
+                RAISE WARNING 'Failed to create database user for usuario ID %', user_record.cod;
+            END IF;
+        EXCEPTION
+            WHEN OTHERS THEN
+                RAISE WARNING 'Error creating database user for usuario ID %: %', user_record.cod, SQLERRM;
+        END;
+    END LOOP;
+    
+    RAISE NOTICE 'Finished PostgreSQL user creation process';
+END $$;

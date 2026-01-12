@@ -497,8 +497,205 @@ app.delete('/api/roles/:roleId/privileges/:privilegeId', async (req, res) => {
   }
 });
 
+// =============================================
+// SET ROLE Functionality - Execute queries as specific user
+// =============================================
+
+/**
+ * Execute a database operation as a specific user using SET ROLE
+ * @param {number} userId - The application user ID
+ * @param {function} queryFn - Async function that receives a client and performs queries
+ * @returns {Promise<any>} - Result of the query function
+ */
+async function executeAsUser(userId, queryFn) {
+  const client = await pool.connect();
+  try {
+    // Set the role to the user's database role
+    const dbUsername = `app_user_${userId}`;
+    await client.query(`SET ROLE ${dbUsername}`);
+
+    // Execute the provided query function
+    const result = await queryFn(client);
+
+    return result;
+  } finally {
+    // Reset role before releasing client
+    await client.query('RESET ROLE');
+    client.release();
+  }
+}
+
+// =============================================
+// User Role Management Endpoints
+// =============================================
+
+// Change a user's role
+app.put('/api/users/:userId/role', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { roleName } = req.body;
+
+    // Get acting user
+    let headerUser = req.header('x-user-id');
+    if (!headerUser && req.headers && req.headers.cookie) {
+      const match = req.headers.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('current_user='));
+      if (match) headerUser = match.split('=')[1];
+    }
+
+    // Check authentication
+    if (!headerUser) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required. Please log in.'
+      });
+    }
+
+    // Check privilege
+    const privilegeCheck = await checkProcedurePrivilege('change_user_role', [userId, roleName], headerUser, pool);
+    if (!privilegeCheck.allowed) {
+      return res.status(403).json({
+        success: false,
+        error: privilegeCheck.error || 'Acceso denegado. No tienes permisos para cambiar roles de usuario.',
+        requiredPrivilege: privilegeCheck.requiredPrivilege
+      });
+    }
+
+    if (!roleName) {
+      return res.status(400).json({ success: false, error: 'roleName is required' });
+    }
+
+    await pool.query('CALL change_user_role($1, $2)', [userId, roleName]);
+    res.json({ success: true, message: 'User role changed successfully' });
+  } catch (error) {
+    console.error(`Error changing role for user ${req.params.userId}:`, error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get user's effective permissions from PostgreSQL
+app.get('/api/users/:userId/permissions', async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    // Get acting user
+    let headerUser = req.header('x-user-id');
+    if (!headerUser && req.headers && req.headers.cookie) {
+      const match = req.headers.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('current_user='));
+      if (match) headerUser = match.split('=')[1];
+    }
+
+    // Check authentication
+    if (!headerUser) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required. Please log in.'
+      });
+    }
+
+    // Users can view their own permissions, or admins can view anyone's
+    const headerUserNum = parseInt(headerUser, 10);
+    const targetUserNum = parseInt(userId, 10);
+
+    if (headerUserNum !== targetUserNum) {
+      // Check if user has manage_roles privilege
+      const privilegeCheck = await checkProcedurePrivilege('get_user_permissions', [userId], headerUser, pool);
+      if (!privilegeCheck.allowed) {
+        return res.status(403).json({
+          success: false,
+          error: 'Acceso denegado. Solo puedes ver tus propios permisos.',
+        });
+      }
+    }
+
+    const result = await pool.query('SELECT * FROM get_user_permissions($1)', [userId]);
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error(`Error fetching permissions for user ${req.params.userId}:`, error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Get current user's permissions
+app.get('/api/me/permissions', async (req, res) => {
+  try {
+    // Get acting user
+    let headerUser = req.header('x-user-id');
+    if (!headerUser && req.headers && req.headers.cookie) {
+      const match = req.headers.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('current_user='));
+      if (match) headerUser = match.split('=')[1];
+    }
+
+    if (!headerUser) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required. Please log in.'
+      });
+    }
+
+    const result = await pool.query('SELECT * FROM get_user_permissions($1)', [headerUser]);
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error('Error fetching current user permissions:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// =============================================
+// PostgreSQL Role Information Endpoints
+// =============================================
+
+// Get all PostgreSQL roles (for admin dashboard)
+app.get('/api/pg-roles', async (req, res) => {
+  try {
+    // Get acting user
+    let headerUser = req.header('x-user-id');
+    if (!headerUser && req.headers && req.headers.cookie) {
+      const match = req.headers.cookie.split(';').map(c => c.trim()).find(c => c.startsWith('current_user='));
+      if (match) headerUser = match.split('=')[1];
+    }
+
+    // Check authentication
+    if (!headerUser) {
+      return res.status(401).json({
+        success: false,
+        error: 'Authentication required. Please log in.'
+      });
+    }
+
+    // Check privilege (only admins should see this)
+    const privilegeCheck = await checkProcedurePrivilege('manage_roles', [], headerUser, pool);
+    if (!privilegeCheck.allowed) {
+      return res.status(403).json({
+        success: false,
+        error: 'Acceso denegado. Solo administradores pueden ver roles de PostgreSQL.',
+      });
+    }
+
+    const result = await pool.query(`
+      SELECT 
+        rolname as role_name,
+        rolcanlogin as can_login,
+        rolsuper as is_superuser,
+        CASE 
+          WHEN rolname LIKE 'app_user_%' THEN 'user'
+          WHEN rolname LIKE 'app_%' THEN 'base_role'
+          ELSE 'system'
+        END as role_type
+      FROM pg_roles
+      WHERE rolname LIKE 'app_%'
+      ORDER BY role_type, rolname
+    `);
+
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error('Error fetching PostgreSQL roles:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`📊 Database: ${process.env.DB_NAME}@${process.env.DB_HOST}:${process.env.DB_PORT}`);
+  console.log(`🔐 Native PostgreSQL RBAC enabled with SET ROLE`);
 });
 

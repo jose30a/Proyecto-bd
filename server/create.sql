@@ -2743,3 +2743,437 @@ WHERE r.fk_cod_usuario = p_user_id
 ORDER BY r.cod DESC;
 END;
 $$ LANGUAGE plpgsql;
+-- =============================================
+-- POSTGRESQL NATIVE ROLE-BASED ACCESS CONTROL
+-- =============================================
+
+-- =============================================
+-- 1. CREATE BASE ROLES (Templates for permissions)
+-- =============================================
+
+-- Create base roles (no login capability - these are templates)
+CREATE ROLE app_administradoristrador NOLOGIN;
+CREATE ROLE app_cliente NOLOGIN;
+CREATE ROLE app_proveedor NOLOGIN;
+CREATE ROLE app_auditor NOLOGIN;
+CREATE ROLE app_agente NOLOGIN;
+CREATE ROLE app_analista NOLOGIN;
+CREATE ROLE app_gerente NOLOGIN;
+CREATE ROLE app_operador NOLOGIN;
+CREATE ROLE app_soporte NOLOGIN;
+CREATE ROLE app_ventas NOLOGIN;
+
+-- =============================================
+-- 2. GRANT PRIVILEGES TO BASE ROLES
+-- =============================================
+
+-- ADMINISTRADOR: Full control
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO app_administradoristrador;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO app_administradoristrador;
+GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO app_administradoristrador;
+GRANT ALL PRIVILEGES ON ALL ROUTINES IN SCHEMA public TO app_administradoristrador;
+GRANT USAGE ON SCHEMA public TO app_administradoristrador;
+
+-- CLIENTE: Read access + manage own data
+GRANT USAGE ON SCHEMA public TO app_cliente;
+GRANT SELECT ON paquete_turistico, servicio, hotel, restaurant, lugar, terminal TO app_cliente;
+GRANT SELECT ON aerolinea, crucero, terrestre, turistico TO app_cliente;
+GRANT SELECT, INSERT, UPDATE, DELETE ON deseo, reclamo, reseña TO app_cliente;
+GRANT SELECT ON usuario, rol, tag, promocion TO app_cliente;
+GRANT SELECT ON tasa_cambio, plan_pago TO app_cliente;
+GRANT EXECUTE ON FUNCTION get_all_packages() TO app_cliente;
+GRANT EXECUTE ON FUNCTION get_package_details(INTEGER) TO app_cliente;
+GRANT EXECUTE ON FUNCTION authenticate_user(VARCHAR, VARCHAR) TO app_cliente;
+GRANT EXECUTE ON FUNCTION get_user_by_id(INTEGER) TO app_cliente;
+GRANT EXECUTE ON FUNCTION get_all_airlines() TO app_cliente;
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO app_cliente;
+
+-- AGENTE: Package and service management
+GRANT USAGE ON SCHEMA public TO app_agente;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO app_agente;
+GRANT SELECT, INSERT, UPDATE, DELETE ON paquete_turistico, servicio TO app_agente;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ser_paq, hot_paq, res_paq, tag_paq TO app_agente;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO app_agente;
+GRANT EXECUTE ON ALL ROUTINES IN SCHEMA public TO app_agente;
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO app_agente;
+
+-- GERENTE: Analytics + Promotion management
+GRANT USAGE ON SCHEMA public TO app_gerente;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO app_gerente;
+GRANT SELECT, INSERT, UPDATE, DELETE ON promocion, pro_ser TO app_gerente;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO app_gerente;
+GRANT EXECUTE ON ALL ROUTINES IN SCHEMA public TO app_gerente;
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO app_gerente;
+
+-- ANALISTA: Read-only for reports
+GRANT USAGE ON SCHEMA public TO app_analista;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO app_analista;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO app_analista;
+
+-- AUDITOR: Read-only + audit tables
+GRANT USAGE ON SCHEMA public TO app_auditor;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO app_auditor;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO app_auditor;
+
+-- PROVEEDOR: Manage their services
+GRANT USAGE ON SCHEMA public TO app_proveedor;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO app_proveedor;
+GRANT SELECT, INSERT, UPDATE ON servicio, aerolinea, hotel, restaurant TO app_proveedor;
+GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO app_proveedor;
+
+-- =============================================
+-- 3. ROW LEVEL SECURITY (RLS) POLICIES
+-- =============================================
+
+-- Enable RLS on sensitive tables
+ALTER TABLE paquete_turistico ENABLE ROW LEVEL SECURITY;
+ALTER TABLE deseo ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reclamo ENABLE ROW LEVEL SECURITY;
+ALTER TABLE reseña ENABLE ROW LEVEL SECURITY;
+ALTER TABLE usuario ENABLE ROW LEVEL SECURITY;
+
+-- Helper function to get current app user ID from database username
+CREATE OR REPLACE FUNCTION current_app_user_id() RETURNS INTEGER AS $$
+DECLARE
+    v_user_id INTEGER;
+BEGIN
+    -- Extract ID from username (app_user_123 -> 123)
+    SELECT cod INTO v_user_id
+    FROM usuario
+    WHERE 'app_user_' || cod = current_user;
+    
+    -- If not found, might be an admin or system user
+    RETURN v_user_id;
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+
+-- Policy: Admins see everything
+CREATE POLICY admin_all_paquetes ON paquete_turistico
+    FOR ALL
+    TO app_administradoristrador
+    USING (true)
+    WITH CHECK (true);
+
+-- Policy: Clients see active packages or their own packages
+CREATE POLICY cliente_view_paquetes ON paquete_turistico
+    FOR SELECT
+    TO app_cliente
+    USING (
+        estado_paq = 'Active' 
+        OR fk_cod_usuario = current_app_user_id()
+    );
+
+-- Policy: Agents can view and modify packages
+CREATE POLICY agente_manage_paquetes ON paquete_turistico
+    FOR ALL
+    TO app_agente
+    USING (true)
+    WITH CHECK (true);
+
+-- Policy: Managers can view all packages
+CREATE POLICY gerente_view_paquetes ON paquete_turistico
+    FOR SELECT
+    TO app_gerente
+    USING (true);
+
+-- Policy: Clients can only manage their own wishes (deseos)
+CREATE POLICY cliente_own_deseos ON deseo
+    FOR ALL
+    TO app_cliente
+    USING (fk_cod_usuario = current_app_user_id())
+    WITH CHECK (fk_cod_usuario = current_app_user_id());
+
+-- Policy: Admins can manage all wishes
+CREATE POLICY admin_all_deseos ON deseo
+    FOR ALL
+    TO app_administradoristrador
+    USING (true)
+    WITH CHECK (true);
+
+-- Policy: Clients can only manage their own complaints (reclamos)
+CREATE POLICY cliente_own_reclamos ON reclamo
+    FOR ALL
+    TO app_cliente
+    USING (fk_cod_usuario = current_app_user_id())
+    WITH CHECK (fk_cod_usuario = current_app_user_id());
+
+-- Policy: Admins and support can see all complaints
+CREATE POLICY admin_all_reclamos ON reclamo
+    FOR ALL
+    TO app_administradoristrador
+    USING (true)
+    WITH CHECK (true);
+
+CREATE POLICY soporte_view_reclamos ON reclamo
+    FOR SELECT
+    TO app_soporte
+    USING (true);
+
+-- Policy: Clients can only manage their own reviews (reseñas)
+CREATE POLICY cliente_own_reseñas ON reseña
+    FOR ALL
+    TO app_cliente
+    USING (fk_cod_usuario = current_app_user_id())
+    WITH CHECK (fk_cod_usuario = current_app_user_id());
+
+-- Policy: Everyone can view reviews
+CREATE POLICY all_view_reseñas ON reseña
+    FOR SELECT
+    USING (true);
+
+-- Policy: Admins can manage all reviews
+CREATE POLICY admin_all_reseñas ON reseña
+    FOR ALL
+    TO app_administradoristrador
+    USING (true)
+    WITH CHECK (true);
+
+-- Policy: Users can only view their own user data
+CREATE POLICY user_own_data ON usuario
+    FOR SELECT
+    TO app_cliente, app_agente, app_gerente, app_proveedor
+    USING (cod = current_app_user_id());
+
+-- Policy: Admins can view all users
+CREATE POLICY admin_all_users ON usuario
+    FOR ALL
+    TO app_administradoristrador
+    USING (true)
+    WITH CHECK (true);
+
+-- =============================================
+-- 4. USER MANAGEMENT FUNCTIONS
+-- =============================================
+
+-- Function to create PostgreSQL user for application user
+CREATE OR REPLACE FUNCTION create_db_user_for_app_user(
+    p_user_id INTEGER,
+    p_role_name VARCHAR,
+    p_password VARCHAR
+) RETURNS BOOLEAN AS $$
+DECLARE
+    v_db_username VARCHAR;
+    v_db_role VARCHAR;
+    v_sql TEXT;
+BEGIN
+    -- Generate database username (e.g., app_user_123)
+    v_db_username := 'app_user_' || p_user_id;
+    v_db_role := 'app_' || lower(p_role_name);
+    
+    -- Verify base role exists
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = v_db_role) THEN
+        RAISE EXCEPTION 'Role % does not exist', v_db_role;
+    END IF;
+    
+    -- Create user if not exists
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = v_db_username) THEN
+        -- Create user with password
+        v_sql := format('CREATE USER %I WITH PASSWORD %L', v_db_username, p_password);
+        EXECUTE v_sql;
+        
+        -- Grant base role to user
+        v_sql := format('GRANT %I TO %I', v_db_role, v_db_username);
+        EXECUTE v_sql;
+        
+        -- Allow connection to database
+        v_sql := format('GRANT CONNECT ON DATABASE %I TO %I', current_database(), v_db_username);
+        EXECUTE v_sql;
+        
+        -- Set search_path
+        v_sql := format('ALTER ROLE %I SET search_path TO public', v_db_username);
+        EXECUTE v_sql;
+        
+        RAISE NOTICE 'Created database user % with role %', v_db_username, v_db_role;
+    ELSE
+        RAISE NOTICE 'Database user % already exists', v_db_username;
+    END IF;
+    
+    RETURN TRUE;
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE WARNING 'Error creating database user: %', SQLERRM;
+        RETURN FALSE;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Modified register_user procedure to create DB user
+CREATE OR REPLACE PROCEDURE register_user(
+    p_email VARCHAR,
+    p_password VARCHAR,
+    p_primer_nombre VARCHAR,
+    p_segundo_nombre VARCHAR,
+    p_primer_apellido VARCHAR,
+    p_segundo_apellido VARCHAR,
+    p_ci VARCHAR,
+    p_tipo_documento VARCHAR,
+    p_n_pasaporte VARCHAR,
+    p_visa BOOLEAN,
+    p_fk_cod_rol INTEGER
+) AS $$
+DECLARE 
+    v_email_exists BOOLEAN;
+    v_new_user_id INTEGER;
+    v_role_name VARCHAR;
+    v_created BOOLEAN;
+BEGIN
+    -- Check if email already exists
+    SELECT EXISTS(SELECT 1 FROM usuario WHERE email_usu = p_email) INTO v_email_exists;
+    
+    IF v_email_exists THEN
+        RAISE EXCEPTION 'Email already registered';
+    END IF;
+    
+    -- Insert user into table
+    INSERT INTO usuario (
+        email_usu, password_usu, primer_nombre_usu, segundo_nombre_usu,
+        primer_apellido_usu, segundo_apellido_usu, ci_usu, tipo_documento,
+        n_pasaporte_usu, visa_usu, fk_cod_rol
+    ) VALUES (
+        p_email, p_password, p_primer_nombre, p_segundo_nombre,
+        p_primer_apellido, p_segundo_apellido, p_ci, p_tipo_documento,
+        p_n_pasaporte, COALESCE(p_visa, false), COALESCE(p_fk_cod_rol, 2)
+    ) RETURNING cod INTO v_new_user_id;
+    
+    -- Get role name
+    SELECT nombre_rol INTO v_role_name FROM rol WHERE cod = COALESCE(p_fk_cod_rol, 2);
+    
+    -- Create PostgreSQL user
+    SELECT create_db_user_for_app_user(v_new_user_id, v_role_name, p_password) INTO v_created;
+    
+    IF NOT v_created THEN
+        RAISE WARNING 'User created in usuario table but failed to create database user';
+    END IF;
+    
+    RAISE NOTICE 'User registered successfully with ID %', v_new_user_id;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Procedure to change user role
+CREATE OR REPLACE PROCEDURE change_user_role(
+    p_user_id INTEGER,
+    p_new_role_name VARCHAR
+) AS $$
+DECLARE
+    v_db_username VARCHAR;
+    v_old_role VARCHAR;
+    v_new_role VARCHAR;
+    v_sql TEXT;
+    v_new_role_id INTEGER;
+BEGIN
+    v_db_username := 'app_user_' || p_user_id;
+    v_new_role := 'app_' || lower(p_new_role_name);
+    
+    -- Get current role
+    SELECT 'app_' || lower(r.nombre_rol) INTO v_old_role
+    FROM usuario u
+    JOIN rol r ON u.fk_cod_rol = r.cod
+    WHERE u.cod = p_user_id;
+    
+    IF v_old_role IS NULL THEN
+        RAISE EXCEPTION 'User % not found', p_user_id;
+    END IF;
+    
+    -- Get new role ID
+    SELECT cod INTO v_new_role_id FROM rol WHERE nombre_rol = p_new_role_name;
+    
+    IF v_new_role_id IS NULL THEN
+        RAISE EXCEPTION 'Role % not found', p_new_role_name;
+    END IF;
+    
+    -- Update in usuario table
+    UPDATE usuario SET fk_cod_rol = v_new_role_id WHERE cod = p_user_id;
+    
+    -- Update in PostgreSQL if database user exists
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = v_db_username) THEN
+        -- Revoke old role
+        IF v_old_role IS NOT NULL AND v_old_role != v_new_role THEN
+            v_sql := format('REVOKE %I FROM %I', v_old_role, v_db_username);
+            EXECUTE v_sql;
+        END IF;
+        
+        -- Grant new role
+        v_sql := format('GRANT %I TO %I', v_new_role, v_db_username);
+        EXECUTE v_sql;
+        
+        RAISE NOTICE 'Changed role for user % from % to %', v_db_username, v_old_role, v_new_role;
+    ELSE
+        RAISE WARNING 'Database user % does not exist, only updated usuario table', v_db_username;
+    END IF;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to get user privileges (for display purposes)
+CREATE OR REPLACE FUNCTION get_user_permissions(p_user_id INTEGER)
+RETURNS TABLE(
+    privilege_type VARCHAR,
+    object_name VARCHAR,
+    permission VARCHAR
+) AS $$
+DECLARE
+    v_db_username VARCHAR;
+    v_role_name VARCHAR;
+BEGIN
+    v_db_username := 'app_user_' || p_user_id;
+    
+    -- Get role name
+    SELECT 'app_' || lower(r.nombre_rol) INTO v_role_name
+    FROM usuario u
+    JOIN rol r ON u.fk_cod_rol = r.cod
+    WHERE u.cod = p_user_id;
+    
+    -- Return table privileges for the user's role
+    RETURN QUERY
+    SELECT 
+        'TABLE'::VARCHAR as privilege_type,
+        table_name::VARCHAR as object_name,
+        privilege_type::VARCHAR as permission
+    FROM information_schema.table_privileges
+    WHERE grantee = v_role_name
+    ORDER BY table_name, privilege_type;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Function to check if user has specific privilege (for middleware compatibility)
+CREATE OR REPLACE FUNCTION user_has_privilege(
+    p_user_id INTEGER,
+    p_privilege_name VARCHAR
+) RETURNS BOOLEAN AS $$
+DECLARE
+    v_role_name VARCHAR;
+    v_has_privilege BOOLEAN := FALSE;
+BEGIN
+    -- Get user's role
+    SELECT nombre_rol INTO v_role_name
+    FROM usuario u
+    JOIN rol r ON u.fk_cod_rol = r.cod
+    WHERE u.cod = p_user_id;
+    
+    -- Simple privilege check based on role
+    -- Admins have all privileges
+    IF v_role_name = 'Administrador' THEN
+        RETURN TRUE;
+    END IF;
+    
+    -- Map privileges to roles
+    CASE p_privilege_name
+        WHEN 'view_packages', 'view_airlines', 'view_users' THEN
+            v_has_privilege := v_role_name IN ('Administrador', 'Agente', 'Gerente', 'Analista', 'Cliente');
+        WHEN 'create_package', 'edit_package', 'delete_package' THEN
+            v_has_privilege := v_role_name IN ('Administrador', 'Agente');
+        WHEN 'create_airline', 'edit_airline', 'delete_airline' THEN
+            v_has_privilege := v_role_name = 'Administrador';
+        WHEN 'view_promotions', 'create_promotion', 'edit_promotion', 'delete_promotion' THEN
+            v_has_privilege := v_role_name IN ('Administrador', 'Gerente');
+        WHEN 'view_analytics', 'view_reports' THEN
+            v_has_privilege := v_role_name IN ('Administrador', 'Gerente', 'Analista');
+        WHEN 'manage_roles', 'manage_privileges', 'create_user', 'edit_user' THEN
+            v_has_privilege := v_role_name = 'Administrador';
+        ELSE
+            v_has_privilege := FALSE;
+    END CASE;
+    
+    RETURN v_has_privilege;
+END;
+$$ LANGUAGE plpgsql STABLE SECURITY DEFINER;
+
+-- Audit recording is handled by the record_audit(TEXT) function defined earlier.

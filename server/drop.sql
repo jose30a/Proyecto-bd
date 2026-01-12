@@ -361,3 +361,51 @@ DROP PROCEDURE IF EXISTS submit_complaint(
     INTEGER
 ) CASCADE;
 DROP FUNCTION IF EXISTS get_user_complaints(INTEGER) CASCADE;
+
+-- =============================================
+-- 17. POSTGRESQL NATIVE RBAC ROLES DROPS
+-- =============================================
+
+-- Drop PostgreSQL native RBAC base roles if they exist
+DO $$
+BEGIN
+    -- Drop base roles if exist
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_administrador') THEN
+        DROP ROLE app_administrador;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_cliente') THEN
+        DROP ROLE app_cliente;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_proveedor') THEN
+        DROP ROLE app_proveedor;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_auditor') THEN
+        DROP ROLE app_auditor;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_agente') THEN
+        DROP ROLE app_agente;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_analista') THEN
+        DROP ROLE app_analista;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_gerente') THEN
+        DROP ROLE app_gerente;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_operador') THEN
+        DROP ROLE app_operador;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_soporte') THEN
+        DROP ROLE app_soporte;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_ventas') THEN
+        DROP ROLE app_ventas;
+    END IF;
+END $$;
+
+-- =============================================
+-- 18. DROP USER MANAGEMENT FUNCTIONS FOR RBAC
+-- =============================================
+DROP FUNCTION IF EXISTS create_db_user_for_app_user(INTEGER, VARCHAR, VARCHAR) CASCADE;
+DROP FUNCTION IF EXISTS current_app_user_id() CASCADE;
+DROP PROCEDURE IF EXISTS change_user_role(INTEGER, VARCHAR) CASCADE;
+DROP FUNCTION IF EXISTS get_user_permissions(INTEGER) CASCADE;

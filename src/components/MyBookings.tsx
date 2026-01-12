@@ -667,7 +667,7 @@ The refund will be processed to your original payment method within 5-7 business
                     )}
                     <button
                       onClick={() => handleComplaintNow(booking)}
-                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md transition-colors text-sm font-medium shadow-sm"
+                      className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-black rounded-md transition-colors text-sm font-medium shadow-sm"
                     >
                       <AlertCircle className="w-4 h-4" />
                       Leave Complaint
