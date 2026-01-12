@@ -563,21 +563,6 @@ FROM rol
 ORDER BY cod;
 END;
 $$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_usuario_update_role() RETURNS trigger AS $$ BEGIN IF (
-        OLD.fk_cod_rol IS DISTINCT
-        FROM NEW.fk_cod_rol
-    ) THEN PERFORM record_audit('Cambio de rol de usuario');
-END IF;
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-CREATE TRIGGER trg_usuario_update_role
-AFTER
-UPDATE ON usuario FOR EACH ROW
-    WHEN (
-        OLD.fk_cod_rol IS DISTINCT
-        FROM NEW.fk_cod_rol
-    ) EXECUTE FUNCTION audit_fn_usuario_update_role();
 -- =============================================
 -- Packages (paquete_turistico)
 -- =============================================
@@ -1254,258 +1239,6 @@ WHERE fk_paquete_padre = p_parent_id
     AND fk_paquete_hijo = p_child_id;
 END;
 $$ LANGUAGE plpgsql;
--- =============================================
--- Auditing System (Helper + Triggers)
--- =============================================
-CREATE OR REPLACE FUNCTION record_audit(p_desc TEXT) RETURNS VOID AS $$
-DECLARE v_user_text TEXT;
-v_user INTEGER;
-v_aud INTEGER;
-BEGIN v_user_text := current_setting('app.current_user', true);
-IF v_user_text IS NOT NULL
-AND trim(v_user_text) <> '' THEN BEGIN v_user := v_user_text::INTEGER;
-EXCEPTION
-WHEN others THEN v_user := NULL;
-END;
-ELSE v_user := NULL;
-END IF;
-SELECT cod INTO v_aud
-FROM auditoria
-WHERE descripcion = p_desc
-LIMIT 1;
-IF v_aud IS NULL THEN
-INSERT INTO auditoria (descripcion)
-VALUES (p_desc)
-RETURNING cod INTO v_aud;
-END IF;
-INSERT INTO aud_usu (fk_usuario, fk_auditoria)
-VALUES (v_user, v_aud);
-END;
-$$ LANGUAGE plpgsql;
--- Audit Wrapper Functions
-CREATE OR REPLACE FUNCTION audit_fn_aerolinea_insert() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Creación de aerolínea');
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_aerolinea_update() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Actualización de aerolínea');
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_aerolinea_delete() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Eliminación de aerolínea');
-RETURN OLD;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_paquete_insert() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Creación de paquete turístico');
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_paquete_update() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Actualización de paquete turístico');
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_paquete_delete() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Eliminación de paquete turístico');
-RETURN OLD;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_promocion_insert() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Creación de promoción');
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_promocion_update() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Actualización de promoción');
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_promocion_delete() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Eliminación de promoción');
-RETURN OLD;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_servicio_insert() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Creación de servicio');
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_servicio_update() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Actualización de servicio');
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_servicio_delete() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Eliminación de servicio');
-RETURN OLD;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_hotel_insert() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Creación de hotel');
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_hotel_update() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Actualización de hotel');
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_hotel_delete() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Eliminación de hotel');
-RETURN OLD;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_restaurant_insert() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Creación de restaurante');
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_restaurant_update() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Actualización de restaurante');
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_restaurant_delete() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Eliminación de restaurante');
-RETURN OLD;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_pago_insert() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Creación de pago');
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_pago_update() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Actualización de pago');
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_pago_delete() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Eliminación de pago');
-RETURN OLD;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_metodopago_insert() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Creación de método de pago');
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_metodopago_update() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Actualización de método de pago');
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_metodopago_delete() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Eliminación de método de pago');
-RETURN OLD;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_telefono_insert() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Creación de contacto');
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_telefono_update() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Actualización de contacto');
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_telefono_delete() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Eliminación de contacto');
-RETURN OLD;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_reclamo_insert() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Creación de reclamo');
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_reclamo_update() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Actualización de reclamo');
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_reclamo_resolve() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Resolución de reclamo');
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_resena_insert() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Creación de reseña');
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_resena_update() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Actualización de reseña');
-RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-CREATE OR REPLACE FUNCTION audit_fn_resena_delete() RETURNS trigger AS $$ BEGIN PERFORM record_audit('Eliminación de reseña');
-RETURN OLD;
-END;
-$$ LANGUAGE plpgsql;
--- Audit Triggers Attachment
-CREATE TRIGGER trg_aerolinea_insert
-AFTER
-INSERT ON aerolinea FOR EACH ROW EXECUTE FUNCTION audit_fn_aerolinea_insert();
-CREATE TRIGGER trg_aerolinea_update
-AFTER
-UPDATE ON aerolinea FOR EACH ROW EXECUTE FUNCTION audit_fn_aerolinea_update();
-CREATE TRIGGER trg_aerolinea_delete
-AFTER DELETE ON aerolinea FOR EACH ROW EXECUTE FUNCTION audit_fn_aerolinea_delete();
-CREATE TRIGGER trg_paquete_insert
-AFTER
-INSERT ON paquete_turistico FOR EACH ROW EXECUTE FUNCTION audit_fn_paquete_insert();
-CREATE TRIGGER trg_paquete_update
-AFTER
-UPDATE ON paquete_turistico FOR EACH ROW EXECUTE FUNCTION audit_fn_paquete_update();
-CREATE TRIGGER trg_paquete_delete
-AFTER DELETE ON paquete_turistico FOR EACH ROW EXECUTE FUNCTION audit_fn_paquete_delete();
-CREATE TRIGGER trg_promocion_insert
-AFTER
-INSERT ON promocion FOR EACH ROW EXECUTE FUNCTION audit_fn_promocion_insert();
-CREATE TRIGGER trg_promocion_update
-AFTER
-UPDATE ON promocion FOR EACH ROW EXECUTE FUNCTION audit_fn_promocion_update();
-CREATE TRIGGER trg_promocion_delete
-AFTER DELETE ON promocion FOR EACH ROW EXECUTE FUNCTION audit_fn_promocion_delete();
-CREATE TRIGGER trg_servicio_insert
-AFTER
-INSERT ON servicio FOR EACH ROW EXECUTE FUNCTION audit_fn_servicio_insert();
-CREATE TRIGGER trg_servicio_update
-AFTER
-UPDATE ON servicio FOR EACH ROW EXECUTE FUNCTION audit_fn_servicio_update();
-CREATE TRIGGER trg_servicio_delete
-AFTER DELETE ON servicio FOR EACH ROW EXECUTE FUNCTION audit_fn_servicio_delete();
-CREATE TRIGGER trg_hotel_insert
-AFTER
-INSERT ON hotel FOR EACH ROW EXECUTE FUNCTION audit_fn_hotel_insert();
-CREATE TRIGGER trg_hotel_update
-AFTER
-UPDATE ON hotel FOR EACH ROW EXECUTE FUNCTION audit_fn_hotel_update();
-CREATE TRIGGER trg_hotel_delete
-AFTER DELETE ON hotel FOR EACH ROW EXECUTE FUNCTION audit_fn_hotel_delete();
-CREATE TRIGGER trg_restaurant_insert
-AFTER
-INSERT ON restaurant FOR EACH ROW EXECUTE FUNCTION audit_fn_restaurant_insert();
-CREATE TRIGGER trg_restaurant_update
-AFTER
-UPDATE ON restaurant FOR EACH ROW EXECUTE FUNCTION audit_fn_restaurant_update();
-CREATE TRIGGER trg_restaurant_delete
-AFTER DELETE ON restaurant FOR EACH ROW EXECUTE FUNCTION audit_fn_restaurant_delete();
-CREATE TRIGGER trg_pago_insert
-AFTER
-INSERT ON pago FOR EACH ROW EXECUTE FUNCTION audit_fn_pago_insert();
-CREATE TRIGGER trg_pago_update
-AFTER
-UPDATE ON pago FOR EACH ROW EXECUTE FUNCTION audit_fn_pago_update();
-CREATE TRIGGER trg_pago_delete
-AFTER DELETE ON pago FOR EACH ROW EXECUTE FUNCTION audit_fn_pago_delete();
-CREATE TRIGGER trg_metodopago_insert
-AFTER
-INSERT ON metodoDePago FOR EACH ROW EXECUTE FUNCTION audit_fn_metodopago_insert();
-CREATE TRIGGER trg_metodopago_update
-AFTER
-UPDATE ON metodoDePago FOR EACH ROW EXECUTE FUNCTION audit_fn_metodopago_update();
-CREATE TRIGGER trg_metodopago_delete
-AFTER DELETE ON metodoDePago FOR EACH ROW EXECUTE FUNCTION audit_fn_metodopago_delete();
-CREATE TRIGGER trg_telefono_insert
-AFTER
-INSERT ON telefono FOR EACH ROW EXECUTE FUNCTION audit_fn_telefono_insert();
-CREATE TRIGGER trg_telefono_update
-AFTER
-UPDATE ON telefono FOR EACH ROW EXECUTE FUNCTION audit_fn_telefono_update();
-CREATE TRIGGER trg_telefono_delete
-AFTER DELETE ON telefono FOR EACH ROW EXECUTE FUNCTION audit_fn_telefono_delete();
-CREATE TRIGGER trg_reclamo_insert
-AFTER
-INSERT ON reclamo FOR EACH ROW EXECUTE FUNCTION audit_fn_reclamo_insert();
-CREATE TRIGGER trg_reclamo_update
-AFTER
-UPDATE ON reclamo FOR EACH ROW EXECUTE FUNCTION audit_fn_reclamo_update();
-CREATE TRIGGER trg_reclamo_resolve
-AFTER
-UPDATE ON reclamo FOR EACH ROW
-    WHEN (NEW.estado_rec = 'Cerrado') EXECUTE FUNCTION audit_fn_reclamo_resolve();
-CREATE TRIGGER trg_resena_insert
-AFTER
-INSERT ON reseña FOR EACH ROW EXECUTE FUNCTION audit_fn_resena_insert();
-CREATE TRIGGER trg_resena_update
-AFTER
-UPDATE ON reseña FOR EACH ROW EXECUTE FUNCTION audit_fn_resena_update();
-CREATE TRIGGER trg_resena_delete
-AFTER DELETE ON reseña FOR EACH ROW EXECUTE FUNCTION audit_fn_resena_delete();
 -- =============================================
 -- DASHBOARD & REPORTING FUNCTIONS
 -- =============================================
@@ -2815,3 +2548,645 @@ FROM caracteristica c
 ORDER BY c.nombre_car;
 END;
 $$ LANGUAGE plpgsql;
+-- =============================================
+-- 19. ROLES AND PRIVILEGES
+-- =============================================
+-- Roles Base
+DO $$ BEGIN IF NOT EXISTS (
+    SELECT
+    FROM pg_catalog.pg_roles
+    WHERE rolname = 'app_administrador'
+) THEN CREATE ROLE app_administrador;
+END IF;
+IF NOT EXISTS (
+    SELECT
+    FROM pg_catalog.pg_roles
+    WHERE rolname = 'app_cliente'
+) THEN CREATE ROLE app_cliente;
+END IF;
+IF NOT EXISTS (
+    SELECT
+    FROM pg_catalog.pg_roles
+    WHERE rolname = 'app_proveedor'
+) THEN CREATE ROLE app_proveedor;
+END IF;
+IF NOT EXISTS (
+    SELECT
+    FROM pg_catalog.pg_roles
+    WHERE rolname = 'app_auditor'
+) THEN CREATE ROLE app_auditor;
+END IF;
+IF NOT EXISTS (
+    SELECT
+    FROM pg_catalog.pg_roles
+    WHERE rolname = 'app_agente'
+) THEN CREATE ROLE app_agente;
+END IF;
+IF NOT EXISTS (
+    SELECT
+    FROM pg_catalog.pg_roles
+    WHERE rolname = 'app_analista'
+) THEN CREATE ROLE app_analista;
+END IF;
+IF NOT EXISTS (
+    SELECT
+    FROM pg_catalog.pg_roles
+    WHERE rolname = 'app_gerente'
+) THEN CREATE ROLE app_gerente;
+END IF;
+IF NOT EXISTS (
+    SELECT
+    FROM pg_catalog.pg_roles
+    WHERE rolname = 'app_operador'
+) THEN CREATE ROLE app_operador;
+END IF;
+IF NOT EXISTS (
+    SELECT
+    FROM pg_catalog.pg_roles
+    WHERE rolname = 'app_soporte'
+) THEN CREATE ROLE app_soporte;
+END IF;
+IF NOT EXISTS (
+    SELECT
+    FROM pg_catalog.pg_roles
+    WHERE rolname = 'app_ventas'
+) THEN CREATE ROLE app_ventas;
+END IF;
+EXECUTE format(
+    'GRANT app_administrador, app_cliente, app_proveedor, app_auditor, app_agente, app_analista, app_gerente, app_operador, app_soporte, app_ventas TO %I',
+    current_user
+);
+END $$;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO app_administrador;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO app_administrador;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO app_cliente;
+GRANT INSERT,
+    UPDATE ON pago,
+    metododepago,
+    reseña,
+    reclamo,
+    deseo,
+    usuario,
+    paquete_turistico,
+    hot_paq,
+    ser_paq,
+    res_paq,
+    plan_pago,
+    promocion,
+    auditoria,
+    aud_usu,
+    paq_paq TO app_cliente;
+GRANT DELETE ON paq_paq TO app_cliente;
+GRANT USAGE,
+    SELECT ON ALL SEQUENCES IN SCHEMA public TO app_cliente;
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO app_agente;
+GRANT INSERT,
+    UPDATE,
+    DELETE ON ALL TABLES IN SCHEMA public TO app_agente;
+GRANT USAGE,
+    SELECT ON ALL SEQUENCES IN SCHEMA public TO app_agente;
+REVOKE ALL ON ALL TABLES IN SCHEMA public
+FROM public;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public
+FROM public;
+REVOKE ALL ON ALL PROCEDURES IN SCHEMA public
+FROM public;
+-- Generated GRANTS
+-- Generated GRANTS
+GRANT EXECUTE ON PROCEDURE register_user(
+        IN p_email character varying,
+        IN p_password character varying,
+        IN p_primer_nombre character varying,
+        IN p_segundo_nombre character varying,
+        IN p_primer_apellido character varying,
+        IN p_segundo_apellido character varying,
+        IN p_ci character varying,
+        IN p_tipo_documento character varying,
+        IN p_n_pasaporte character varying,
+        IN p_visa boolean,
+        IN p_fk_cod_rol integer
+    ) TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_all_roles() TO app_administrador;
+GRANT EXECUTE ON PROCEDURE update_user_password(
+        IN p_email character varying,
+        IN p_old_password character varying,
+        IN p_new_password character varying
+    ) TO app_administrador;
+GRANT EXECUTE ON PROCEDURE update_user_role(
+        IN p_user_id integer,
+        IN p_role_name character varying
+    ) TO app_administrador;
+GRANT EXECUTE ON PROCEDURE upsert_promotion(
+        IN p_id integer,
+        IN p_tipo character varying,
+        IN p_discount integer
+    ) TO app_administrador;
+GRANT EXECUTE ON PROCEDURE upsert_airline(
+        IN p_id integer,
+        IN p_name character varying,
+        IN p_origin_type character varying,
+        IN p_fk_lug integer
+    ) TO app_administrador;
+GRANT EXECUTE ON PROCEDURE delete_package(IN p_id integer) TO app_administrador;
+GRANT EXECUTE ON PROCEDURE delete_promotion(IN p_id integer) TO app_administrador;
+GRANT EXECUTE ON PROCEDURE upsert_package(
+        IN p_id integer,
+        IN p_name character varying,
+        IN p_description text,
+        IN p_status character varying,
+        IN p_millaje integer,
+        IN p_costo_millas integer,
+        IN p_huella numeric
+    ) TO app_administrador;
+GRANT EXECUTE ON PROCEDURE remove_item_from_package(
+        IN p_pkg_id integer,
+        IN p_item_id integer,
+        IN p_type character varying
+    ) TO app_administrador;
+GRANT EXECUTE ON PROCEDURE delete_airline(IN p_id integer) TO app_administrador;
+GRANT EXECUTE ON PROCEDURE upsert_contact_number(
+        IN p_id integer,
+        IN p_airline_id integer,
+        IN p_cod_area character varying,
+        IN p_numero character varying,
+        IN p_tipo character varying
+    ) TO app_administrador;
+GRANT EXECUTE ON PROCEDURE add_child_package(IN p_parent_id integer, IN p_child_id integer) TO app_administrador;
+GRANT EXECUTE ON PROCEDURE remove_child_package(IN p_parent_id integer, IN p_child_id integer) TO app_administrador;
+GRANT EXECUTE ON PROCEDURE remove_promotion_from_service(
+        IN p_promotion_id integer,
+        IN p_service_id integer
+    ) TO app_administrador;
+GRANT EXECUTE ON PROCEDURE assign_promotion_to_service(
+        IN p_promotion_id integer,
+        IN p_service_id integer,
+        IN p_start_date date,
+        IN p_end_date date
+    ) TO app_administrador;
+GRANT EXECUTE ON PROCEDURE remove_privilege_from_role(IN p_role_id integer, IN p_privilege_id integer) TO app_administrador;
+GRANT EXECUTE ON PROCEDURE assign_privilege_to_role(IN p_role_id integer, IN p_privilege_id integer) TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_customer_age_distribution(p_start date, p_end date) TO app_administrador;
+GRANT EXECUTE ON PROCEDURE add_passenger_to_booking(
+        IN p_booking_id integer,
+        IN p_first_name character varying,
+        IN p_last_name character varying,
+        IN p_passport character varying,
+        IN p_dob date
+    ) TO app_administrador;
+GRANT EXECUTE ON PROCEDURE remove_all_tags_from_package(IN p_package_id integer) TO app_administrador;
+GRANT EXECUTE ON PROCEDURE assign_tag_to_package(IN p_tag_id integer, IN p_package_id integer) TO app_administrador;
+GRANT EXECUTE ON PROCEDURE upsert_tag(
+        IN p_id integer,
+        IN p_nombre character varying,
+        IN p_cond1 character varying,
+        IN p_cond_op character varying,
+        IN p_cond2 character varying,
+        IN p_is_restrict boolean
+    ) TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_all_packages_with_ratings() TO app_administrador;
+GRANT EXECUTE ON PROCEDURE submit_complaint(
+        IN p_description text,
+        IN p_user_id integer,
+        IN p_package_id integer,
+        IN p_ser_paq_id integer,
+        IN p_hotel_id integer
+    ) TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_all_characteristics() TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_all_airlines() TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_all_packages() TO app_administrador;
+GRANT EXECUTE ON FUNCTION email_exists(p_email character varying) TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_payment_plans() TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_airline_contacts(p_airline_id integer) TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_all_users() TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_all_promotions() TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_cities(p_country_id integer) TO app_administrador;
+GRANT EXECUTE ON FUNCTION after_insert_paquete_turistico() TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_all_services() TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_all_hotels() TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_all_restaurants() TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_all_privileges() TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_exchange_rates_history(p_start date, p_end date) TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_operator_performance(p_start date, p_end date) TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_refunds_audit(p_start date, p_end date) TO app_administrador;
+GRANT EXECUTE ON FUNCTION is_in_wishlist(p_user_id integer, p_package_id integer) TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_package_tags(p_package_id integer) TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_role_privileges(p_role_id integer) TO app_administrador;
+GRANT EXECUTE ON FUNCTION user_has_privilege(
+        p_user_id integer,
+        p_privilege_name character varying
+    ) TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_promotion_services(p_promotion_id integer) TO app_administrador;
+GRANT EXECUTE ON FUNCTION create_package_returning_id(
+        p_name character varying,
+        p_desc text,
+        p_status character varying,
+        p_millaje integer,
+        p_costo integer,
+        p_huella numeric,
+        p_usuario_id integer
+    ) TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_package_total_price(p_package_id integer) TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_booking_passengers(p_booking_id integer) TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_user_wishlist(p_user_id integer) TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_all_tags() TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_package_hotels_with_ratings(p_package_id integer) TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_hotel_reviews(p_hotel_id integer) TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_package_reviews(p_package_id integer) TO app_administrador;
+GRANT EXECUTE ON FUNCTION check_package_restrictions(p_user_id integer, p_package_id integer) TO app_administrador;
+GRANT EXECUTE ON FUNCTION cancel_package_with_refund(p_package_id integer, p_user_id integer) TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_package_services_with_ratings(p_package_id integer) TO app_administrador;
+GRANT EXECUTE ON PROCEDURE toggle_wishlist(IN p_user_id integer, IN p_package_id integer) TO app_administrador;
+GRANT EXECUTE ON PROCEDURE submit_review(
+        IN p_description text,
+        IN p_rating integer,
+        IN p_user_id integer,
+        IN p_package_id integer,
+        IN p_ser_paq_id integer,
+        IN p_hotel_id integer,
+        IN p_lugar_id integer
+    ) TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_user_by_id(p_user_id integer) TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_user_bookings(p_user_id integer) TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_service_reviews(p_service_id integer) TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_customer_average_age(p_start date, p_end date) TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_user_complaints(p_user_id integer) TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_package_details(p_package_id integer) TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_countries() TO app_administrador;
+GRANT EXECUTE ON FUNCTION before_upsert_aerolinea() TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_negative_reviews(p_start date, p_end date) TO app_administrador;
+GRANT EXECUTE ON PROCEDURE update_user_details(
+        IN p_user_id integer,
+        IN p_email character varying,
+        IN p_primer_nombre character varying,
+        IN p_segundo_nombre character varying,
+        IN p_primer_apellido character varying,
+        IN p_segundo_apellido character varying
+    ) TO app_administrador;
+GRANT EXECUTE ON FUNCTION evaluate_tag_condition(p_user_id integer, p_tag_id integer) TO app_administrador;
+GRANT EXECUTE ON FUNCTION before_insert_paquete_turistico() TO app_administrador;
+GRANT EXECUTE ON PROCEDURE process_payment(
+        IN p_user_id integer,
+        IN p_package_id integer,
+        IN p_amount numeric,
+        IN p_method_type character varying,
+        IN p_description character varying,
+        IN p_card_number character varying,
+        IN p_card_holder character varying,
+        IN p_expiry date,
+        IN p_cvv character varying,
+        IN p_card_type character varying,
+        IN p_card_bank character varying,
+        IN p_check_number character varying,
+        IN p_check_holder character varying,
+        IN p_check_bank character varying,
+        IN p_check_issue_date date,
+        IN p_check_account character varying,
+        IN p_dep_number character varying,
+        IN p_dep_bank character varying,
+        IN p_dep_date date,
+        IN p_dep_ref character varying,
+        IN p_transfer_number character varying,
+        IN p_transfer_time timestamp without time zone,
+        IN p_pm_ref character varying,
+        IN p_pm_time timestamp without time zone,
+        IN p_usdt_wallet character varying,
+        IN p_usdt_date date,
+        IN p_usdt_time timestamp without time zone,
+        IN p_zelle_conf character varying,
+        IN p_zelle_date date,
+        IN p_zelle_time timestamp without time zone,
+        IN p_miles integer,
+        IN p_zelle_email character varying,
+        IN p_zelle_phone character varying,
+        IN p_cedula character varying,
+        IN p_phone character varying,
+        IN p_usdt_id character varying,
+        IN p_plan_id integer
+    ) TO app_administrador;
+GRANT EXECUTE ON PROCEDURE add_item_to_package(
+        IN p_pkg_id integer,
+        IN p_item_id integer,
+        IN p_type character varying,
+        IN p_start_date date,
+        IN p_end_date date
+    ) TO app_administrador;
+GRANT EXECUTE ON FUNCTION get_dashboard_stats() TO app_administrador;
+GRANT EXECUTE ON FUNCTION authenticate_user(
+        p_email character varying,
+        p_password character varying
+    ) TO app_administrador;
+GRANT EXECUTE ON PROCEDURE register_user(
+        IN p_email character varying,
+        IN p_password character varying,
+        IN p_primer_nombre character varying,
+        IN p_segundo_nombre character varying,
+        IN p_primer_apellido character varying,
+        IN p_segundo_apellido character varying,
+        IN p_ci character varying,
+        IN p_tipo_documento character varying,
+        IN p_n_pasaporte character varying,
+        IN p_visa boolean,
+        IN p_fk_cod_rol integer
+    ) TO app_cliente;
+GRANT EXECUTE ON FUNCTION get_all_roles() TO app_cliente;
+GRANT EXECUTE ON PROCEDURE add_child_package(p_parent_id INTEGER, p_child_id INTEGER) TO app_cliente;
+GRANT EXECUTE ON PROCEDURE remove_child_package(p_parent_id INTEGER, p_child_id INTEGER) TO app_cliente;
+GRANT EXECUTE ON PROCEDURE add_passenger_to_booking(
+        p_booking_id INTEGER,
+        p_first_name VARCHAR,
+        p_last_name VARCHAR,
+        p_passport VARCHAR,
+        p_dob DATE
+    ) TO app_cliente;
+GRANT EXECUTE ON PROCEDURE remove_item_from_package(
+        IN p_pkg_id integer,
+        IN p_item_id integer,
+        IN p_type character varying
+    ) TO app_cliente;
+GRANT EXECUTE ON PROCEDURE upsert_tag(
+        IN p_id integer,
+        IN p_nombre character varying,
+        IN p_cond1 character varying,
+        IN p_cond_op character varying,
+        IN p_cond2 character varying,
+        IN p_is_restrict boolean
+    ) TO app_cliente;
+GRANT EXECUTE ON PROCEDURE submit_complaint(
+        IN p_description text,
+        IN p_user_id integer,
+        IN p_package_id integer,
+        IN p_ser_paq_id integer,
+        IN p_hotel_id integer
+    ) TO app_cliente;
+GRANT EXECUTE ON FUNCTION get_all_characteristics() TO app_cliente;
+GRANT EXECUTE ON FUNCTION get_all_airlines() TO app_cliente;
+GRANT EXECUTE ON FUNCTION get_all_packages() TO app_cliente;
+GRANT EXECUTE ON FUNCTION email_exists(p_email character varying) TO app_cliente;
+GRANT EXECUTE ON FUNCTION get_payment_plans() TO app_cliente;
+GRANT EXECUTE ON FUNCTION get_all_promotions() TO app_cliente;
+GRANT EXECUTE ON FUNCTION is_in_wishlist(p_user_id integer, p_package_id integer) TO app_cliente;
+GRANT EXECUTE ON FUNCTION get_package_tags(p_package_id integer) TO app_cliente;
+GRANT EXECUTE ON FUNCTION get_package_total_price(p_package_id integer) TO app_cliente;
+GRANT EXECUTE ON FUNCTION get_user_wishlist(p_user_id integer) TO app_cliente;
+GRANT EXECUTE ON FUNCTION get_all_tags() TO app_cliente;
+GRANT EXECUTE ON FUNCTION get_package_hotels_with_ratings(p_package_id integer) TO app_cliente;
+GRANT EXECUTE ON FUNCTION get_hotel_reviews(p_hotel_id integer) TO app_cliente;
+GRANT EXECUTE ON FUNCTION get_package_reviews(p_package_id integer) TO app_cliente;
+GRANT EXECUTE ON FUNCTION check_package_restrictions(p_user_id integer, p_package_id integer) TO app_cliente;
+GRANT EXECUTE ON FUNCTION cancel_package_with_refund(p_package_id integer, p_user_id integer) TO app_cliente;
+GRANT EXECUTE ON FUNCTION get_package_services_with_ratings(p_package_id integer) TO app_cliente;
+GRANT EXECUTE ON PROCEDURE toggle_wishlist(IN p_user_id integer, IN p_package_id integer) TO app_cliente;
+GRANT EXECUTE ON PROCEDURE submit_review(
+        IN p_description text,
+        IN p_rating integer,
+        IN p_user_id integer,
+        IN p_package_id integer,
+        IN p_ser_paq_id integer,
+        IN p_hotel_id integer,
+        IN p_lugar_id integer
+    ) TO app_cliente;
+GRANT EXECUTE ON FUNCTION get_user_by_id(p_user_id integer) TO app_cliente;
+GRANT EXECUTE ON FUNCTION get_user_bookings(p_user_id integer) TO app_cliente;
+GRANT EXECUTE ON FUNCTION get_service_reviews(p_service_id integer) TO app_cliente;
+GRANT EXECUTE ON FUNCTION get_user_complaints(p_user_id integer) TO app_cliente;
+GRANT EXECUTE ON FUNCTION get_package_details(p_package_id integer) TO app_cliente;
+GRANT EXECUTE ON PROCEDURE update_user_details(
+        IN p_user_id integer,
+        IN p_email character varying,
+        IN p_primer_nombre character varying,
+        IN p_segundo_nombre character varying,
+        IN p_primer_apellido character varying,
+        IN p_segundo_apellido character varying
+    ) TO app_cliente;
+GRANT EXECUTE ON FUNCTION evaluate_tag_condition(p_user_id integer, p_tag_id integer) TO app_cliente;
+GRANT EXECUTE ON PROCEDURE process_payment(
+        IN p_user_id integer,
+        IN p_package_id integer,
+        IN p_amount numeric,
+        IN p_method_type character varying,
+        IN p_description character varying,
+        IN p_card_number character varying,
+        IN p_card_holder character varying,
+        IN p_expiry date,
+        IN p_cvv character varying,
+        IN p_card_type character varying,
+        IN p_card_bank character varying,
+        IN p_check_number character varying,
+        IN p_check_holder character varying,
+        IN p_check_bank character varying,
+        IN p_check_issue_date date,
+        IN p_check_account character varying,
+        IN p_dep_number character varying,
+        IN p_dep_bank character varying,
+        IN p_dep_date date,
+        IN p_dep_ref character varying,
+        IN p_transfer_number character varying,
+        IN p_transfer_time timestamp without time zone,
+        IN p_pm_ref character varying,
+        IN p_pm_time timestamp without time zone,
+        IN p_usdt_wallet character varying,
+        IN p_usdt_date date,
+        IN p_usdt_time timestamp without time zone,
+        IN p_zelle_conf character varying,
+        IN p_zelle_date date,
+        IN p_zelle_time timestamp without time zone,
+        IN p_miles integer,
+        IN p_zelle_email character varying,
+        IN p_zelle_phone character varying,
+        IN p_cedula character varying,
+        IN p_phone character varying,
+        IN p_usdt_id character varying,
+        IN p_plan_id integer
+    ) TO app_cliente;
+GRANT EXECUTE ON PROCEDURE add_item_to_package(
+        IN p_pkg_id integer,
+        IN p_item_id integer,
+        IN p_type character varying,
+        IN p_start_date date,
+        IN p_end_date date
+    ) TO app_cliente;
+GRANT EXECUTE ON FUNCTION get_all_packages_with_ratings() TO app_cliente;
+GRANT EXECUTE ON FUNCTION cancel_package_with_refund(p_package_id integer, p_user_id integer) TO app_cliente;
+GRANT EXECUTE ON FUNCTION create_package_returning_id(
+        p_name character varying,
+        p_desc text,
+        p_status character varying,
+        p_millaje integer,
+        p_costo integer,
+        p_huella numeric,
+        p_usuario_id integer
+    ) TO app_cliente;
+GRANT EXECUTE ON FUNCTION authenticate_user(
+        p_email character varying,
+        p_password character varying
+    ) TO app_cliente;
+GRANT EXECUTE ON FUNCTION authenticate_user(
+        p_email character varying,
+        p_password character varying
+    ) TO app_cliente;
+GRANT EXECUTE ON FUNCTION before_insert_paquete_turistico() TO app_cliente;
+GRANT EXECUTE ON FUNCTION after_insert_paquete_turistico() TO app_cliente;
+GRANT EXECUTE ON PROCEDURE register_user(
+        IN p_email character varying,
+        IN p_password character varying,
+        IN p_primer_nombre character varying,
+        IN p_segundo_nombre character varying,
+        IN p_primer_apellido character varying,
+        IN p_segundo_apellido character varying,
+        IN p_ci character varying,
+        IN p_tipo_documento character varying,
+        IN p_n_pasaporte character varying,
+        IN p_visa boolean,
+        IN p_fk_cod_rol integer
+    ) TO app_agente;
+GRANT EXECUTE ON FUNCTION get_all_roles() TO app_agente;
+GRANT EXECUTE ON PROCEDURE add_child_package(p_parent_id INTEGER, p_child_id INTEGER) TO app_agente;
+GRANT EXECUTE ON PROCEDURE remove_child_package(p_parent_id INTEGER, p_child_id INTEGER) TO app_agente;
+GRANT EXECUTE ON PROCEDURE add_passenger_to_booking(
+        p_booking_id INTEGER,
+        p_first_name VARCHAR,
+        p_last_name VARCHAR,
+        p_passport VARCHAR,
+        p_dob DATE
+    ) TO app_agente;
+GRANT EXECUTE ON PROCEDURE upsert_promotion(
+        IN p_id integer,
+        IN p_tipo character varying,
+        IN p_discount integer
+    ) TO app_agente;
+GRANT EXECUTE ON PROCEDURE upsert_airline(
+        IN p_id integer,
+        IN p_name character varying,
+        IN p_origin_type character varying,
+        IN p_fk_lug integer
+    ) TO app_agente;
+GRANT EXECUTE ON PROCEDURE upsert_package(
+        IN p_id integer,
+        IN p_name character varying,
+        IN p_description text,
+        IN p_status character varying,
+        IN p_millaje integer,
+        IN p_costo_millas integer,
+        IN p_huella numeric
+    ) TO app_agente;
+GRANT EXECUTE ON PROCEDURE remove_item_from_package(
+        IN p_pkg_id integer,
+        IN p_item_id integer,
+        IN p_type character varying
+    ) TO app_agente;
+GRANT EXECUTE ON PROCEDURE upsert_tag(
+        IN p_id integer,
+        IN p_nombre character varying,
+        IN p_cond1 character varying,
+        IN p_cond_op character varying,
+        IN p_cond2 character varying,
+        IN p_is_restrict boolean
+    ) TO app_agente;
+GRANT EXECUTE ON FUNCTION get_all_characteristics() TO app_agente;
+GRANT EXECUTE ON FUNCTION get_all_airlines() TO app_agente;
+GRANT EXECUTE ON FUNCTION get_all_packages() TO app_agente;
+GRANT EXECUTE ON FUNCTION email_exists(p_email character varying) TO app_agente;
+GRANT EXECUTE ON FUNCTION get_payment_plans() TO app_agente;
+GRANT EXECUTE ON FUNCTION get_all_users() TO app_agente;
+GRANT EXECUTE ON FUNCTION get_all_promotions() TO app_agente;
+GRANT EXECUTE ON FUNCTION get_package_tags(p_package_id integer) TO app_agente;
+GRANT EXECUTE ON FUNCTION get_package_total_price(p_package_id integer) TO app_agente;
+GRANT EXECUTE ON FUNCTION get_all_tags() TO app_agente;
+GRANT EXECUTE ON FUNCTION get_user_by_id(p_user_id integer) TO app_agente;
+GRANT EXECUTE ON FUNCTION get_user_bookings(p_user_id integer) TO app_agente;
+GRANT EXECUTE ON FUNCTION get_package_details(p_package_id integer) TO app_agente;
+GRANT EXECUTE ON PROCEDURE update_user_details(
+        IN p_user_id integer,
+        IN p_email character varying,
+        IN p_primer_nombre character varying,
+        IN p_segundo_nombre character varying,
+        IN p_primer_apellido character varying,
+        IN p_segundo_apellido character varying
+    ) TO app_agente;
+GRANT EXECUTE ON PROCEDURE process_payment(
+        IN p_user_id integer,
+        IN p_package_id integer,
+        IN p_amount numeric,
+        IN p_method_type character varying,
+        IN p_description character varying,
+        IN p_card_number character varying,
+        IN p_card_holder character varying,
+        IN p_expiry date,
+        IN p_cvv character varying,
+        IN p_card_type character varying,
+        IN p_card_bank character varying,
+        IN p_check_number character varying,
+        IN p_check_holder character varying,
+        IN p_check_bank character varying,
+        IN p_check_issue_date date,
+        IN p_check_account character varying,
+        IN p_dep_number character varying,
+        IN p_dep_bank character varying,
+        IN p_dep_date date,
+        IN p_dep_ref character varying,
+        IN p_transfer_number character varying,
+        IN p_transfer_time timestamp without time zone,
+        IN p_pm_ref character varying,
+        IN p_pm_time timestamp without time zone,
+        IN p_usdt_wallet character varying,
+        IN p_usdt_date date,
+        IN p_usdt_time timestamp without time zone,
+        IN p_zelle_conf character varying,
+        IN p_zelle_date date,
+        IN p_zelle_time timestamp without time zone,
+        IN p_miles integer,
+        IN p_zelle_email character varying,
+        IN p_zelle_phone character varying,
+        IN p_cedula character varying,
+        IN p_phone character varying,
+        IN p_usdt_id character varying,
+        IN p_plan_id integer
+    ) TO app_agente;
+GRANT EXECUTE ON PROCEDURE add_item_to_package(
+        IN p_pkg_id integer,
+        IN p_item_id integer,
+        IN p_type character varying,
+        IN p_start_date date,
+        IN p_end_date date
+    ) TO app_agente;
+GRANT EXECUTE ON FUNCTION get_dashboard_stats() TO app_agente;
+GRANT EXECUTE ON FUNCTION get_all_packages_with_ratings() TO app_agente;
+GRANT EXECUTE ON FUNCTION cancel_package_with_refund(p_package_id integer, p_user_id integer) TO app_agente;
+GRANT EXECUTE ON FUNCTION create_package_returning_id(
+        p_name character varying,
+        p_desc text,
+        p_status character varying,
+        p_millaje integer,
+        p_costo integer,
+        p_huella numeric,
+        p_usuario_id integer
+    ) TO app_agente;
+GRANT EXECUTE ON FUNCTION authenticate_user(
+        p_email character varying,
+        p_password character varying
+    ) TO app_agente;
+GRANT EXECUTE ON FUNCTION authenticate_user(
+        p_email character varying,
+        p_password character varying
+    ) TO app_agente;
+GRANT EXECUTE ON FUNCTION before_insert_paquete_turistico() TO app_agente;
+GRANT EXECUTE ON FUNCTION after_insert_paquete_turistico() TO app_agente;
+GRANT EXECUTE ON PROCEDURE register_user(
+        IN p_email character varying,
+        IN p_password character varying,
+        IN p_primer_nombre character varying,
+        IN p_segundo_nombre character varying,
+        IN p_primer_apellido character varying,
+        IN p_segundo_apellido character varying,
+        IN p_ci character varying,
+        IN p_tipo_documento character varying,
+        IN p_n_pasaporte character varying,
+        IN p_visa boolean,
+        IN p_fk_cod_rol integer
+    ) TO public;
+GRANT EXECUTE ON FUNCTION get_all_roles() TO public;
+GRANT EXECUTE ON FUNCTION email_exists(p_email character varying) TO public;
+GRANT EXECUTE ON FUNCTION authenticate_user(
+        p_email character varying,
+        p_password character varying
+    ) TO public;

@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
-const { checkProcedurePrivilege } = require('./privilege-middleware');
+const { isPublicProcedure } = require('./privilege-middleware'); // Only keep public check for now
 require('dotenv').config();
 
 const app = express();
@@ -109,8 +109,6 @@ app.post('/api/procedure/:procedureName', async (req, res) => {
       console.log(`[procedure] ${procedureName} - acting user from header/cookie:`, headerUser || 'none');
 
       // 1. PUBLIC PROCEDURE CHECK
-      // If it's NOT a public procedure, we MUST have a user.
-      const { isPublicProcedure } = require('./privilege-middleware');
       if (!isPublicProcedure(procedureName)) {
         if (!headerUser) {
           console.warn(`[AUTH FAILED] Anonymous access attempted for protected procedure: ${procedureName}`);
@@ -119,24 +117,22 @@ app.post('/api/procedure/:procedureName', async (req, res) => {
             error: 'Authentication required. Please log in.'
           });
         }
-
-        // 2. PRIVILEGE CHECK
-        // User is present, now check if they have the specific role/privilege
-        const privilegeCheck = await checkProcedurePrivilege(procedureName, params, headerUser, pool);
-
-        if (!privilegeCheck.allowed) {
-          // Release client is handled in finally block
-          return res.status(403).json({
-            success: false,
-            error: privilegeCheck.error || 'Acceso denegado',
-            requiredPrivilege: privilegeCheck.requiredPrivilege
-          });
-        }
       }
 
+      // Start transaction if we have a user to set context
       if (headerUser) {
         await client.query('BEGIN');
         inTx = true;
+
+        // Fetch user's role to SET ROLE
+        const userRes = await client.query('SELECT r.nombre_rol FROM usuario u JOIN rol r ON u.fk_cod_rol = r.cod WHERE u.cod = $1', [headerUser]);
+        if (userRes.rows.length > 0) {
+          const roleName = userRes.rows[0].nombre_rol.toLowerCase().replace(/\s+/g, '_');
+          const pgRole = `app_${roleName}`;
+          console.log(`[context] Switching to role: ${pgRole} for user ${headerUser}`);
+          await client.query(`SET ROLE ${pgRole}`);
+        }
+
         await client.query("SELECT set_config('app.current_user', $1, true)", [String(headerUser)]);
       }
 
@@ -174,38 +170,41 @@ app.post('/api/procedure/:procedureName', async (req, res) => {
     }
   } catch (error) {
     console.error(`Error calling procedure ${procedureName}:`, error);
-    console.error(`Query attempted: CALL ${procedureName}(...)`);
-    console.error(`Parameters:`, params);
 
-    if (error.code === '42883' || (error.message && error.message.includes('does not exist'))) {
-      const checkQuery = `
+    // Handle "Permission Denied" from PostgreSQL
+    if (error.code === '42501') {
+      return res.status(403).json({
+        success: false,
+        error: 'Acceso denegado (DB). No tienes permisos para ejecutar esta acción.',
+        db_error: error.message
+      });
+    }
+    const checkQuery = `
         SELECT proname, pg_get_function_arguments(oid) as args
         FROM pg_proc 
         WHERE proname = $1 AND pronamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public')
       `;
-      try {
-        const checkResult = await pool.query(checkQuery, [procedureName]);
-        if (checkResult.rows.length === 0) {
-          return res.status(500).json({
-            success: false,
-            error: `Procedure ${procedureName} does not exist in the database.`,
-            hint: 'Make sure you ran: psql -U postgres -d viajesucab -f server/create.sql',
-            troubleshooting: 'Check if the procedure was created: SELECT proname FROM pg_proc WHERE proname = \'' + procedureName + '\';'
-          });
-        } else {
-          return res.status(500).json({
-            success: false,
-            error: `Procedure ${procedureName} exists but parameter types don't match.`,
-            procedure_signature: checkResult.rows[0].args,
-            provided_params: params,
-            hint: 'Check the procedure signature in create.sql and ensure parameters match.'
-          });
-        }
-      } catch (checkError) {
-        // fall through to generic error
+    try {
+      const checkResult = await pool.query(checkQuery, [procedureName]);
+      if (checkResult.rows.length === 0) {
+        return res.status(500).json({
+          success: false,
+          error: `Procedure ${procedureName} does not exist in the database.`,
+          hint: 'Make sure you ran: psql -U postgres -d viajesucab -f server/create.sql',
+          troubleshooting: 'Check if the procedure was created: SELECT proname FROM pg_proc WHERE proname = \'' + procedureName + '\';'
+        });
+      } else {
+        return res.status(500).json({
+          success: false,
+          error: `Procedure ${procedureName} exists but parameter types don't match.`,
+          procedure_signature: checkResult.rows[0].args,
+          provided_params: params,
+          hint: 'Check the procedure signature in create.sql and ensure parameters match.'
+        });
       }
+    } catch (checkError) {
+      // fall through to generic error
     }
-
     res.status(500).json({ success: false, error: error.message, code: error.code });
   }
 });
@@ -263,8 +262,6 @@ app.post('/api/function/:functionName', async (req, res) => {
       console.log(`[function] ${functionName} - acting user from header/cookie:`, headerUser || 'none');
 
       // 1. PUBLIC FUNCTION CHECK
-      // Certain functions don't require authentication (e.g., authenticate_user, get_all_roles for registration)
-      const { isPublicProcedure } = require('./privilege-middleware');
       if (!isPublicProcedure(functionName)) {
         if (!headerUser) {
           console.warn(`[AUTH FAILED] Anonymous access attempted for protected function: ${functionName}`);
@@ -273,21 +270,21 @@ app.post('/api/function/:functionName', async (req, res) => {
             error: 'Authentication required. Please log in.'
           });
         }
-
-        // 2. PRIVILEGE CHECK
-        const privilegeCheck = await checkProcedurePrivilege(functionName, params, headerUser, pool);
-        if (!privilegeCheck.allowed) {
-          return res.status(403).json({
-            success: false,
-            error: privilegeCheck.error || 'Acceso denegado',
-            requiredPrivilege: privilegeCheck.requiredPrivilege
-          });
-        }
       }
 
       if (headerUser) {
         await client.query('BEGIN');
         inTx = true;
+
+        // Fetch user's role to SET ROLE
+        const userRes = await client.query('SELECT r.nombre_rol FROM usuario u JOIN rol r ON u.fk_cod_rol = r.cod WHERE u.cod = $1', [headerUser]);
+        if (userRes.rows.length > 0) {
+          const roleName = userRes.rows[0].nombre_rol.toLowerCase().replace(/\s+/g, '_');
+          const pgRole = `app_${roleName}`;
+          console.log(`[context] Switching to role: ${pgRole} for user ${headerUser}`);
+          await client.query(`SET ROLE ${pgRole}`);
+        }
+
         await client.query("SELECT set_config('app.current_user', $1, true)", [String(headerUser)]);
       }
 
@@ -318,6 +315,15 @@ app.post('/api/function/:functionName', async (req, res) => {
     }
   } catch (error) {
     console.error(`Error calling function ${functionName}:`, error);
+
+    // Handle "Permission Denied" from PostgreSQL
+    if (error.code === '42501') {
+      return res.status(403).json({
+        success: false,
+        error: 'Acceso denegado (DB). No tienes permisos para ejecutar esta acción.',
+        db_error: error.message
+      });
+    }
 
     // Provide helpful error message if function doesn't exist
     if (error.code === '42883') {
@@ -367,6 +373,15 @@ app.get('/api/me', async (req, res) => {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+
+      // Fetch user's role to SET ROLE
+      const userResRole = await client.query('SELECT r.nombre_rol FROM usuario u JOIN rol r ON u.fk_cod_rol = r.cod WHERE u.cod = $1', [userIdNum]);
+      if (userResRole.rows.length > 0) {
+        const roleName = userResRole.rows[0].nombre_rol.toLowerCase().replace(/\s+/g, '_');
+        const pgRole = `app_${roleName}`;
+        await client.query(`SET ROLE ${pgRole}`);
+      }
+
       await client.query("SELECT set_config('app.current_user', $1, true)", [String(userIdNum)]);
       const result = await client.query('SELECT * FROM get_user_by_id($1)', [userIdNum]);
       await client.query('COMMIT');
@@ -437,22 +452,30 @@ app.post('/api/roles/:roleId/privileges', async (req, res) => {
       });
     }
 
-    // Check privilege
-    const privilegeCheck = await checkProcedurePrivilege('assign_privilege_to_role', [roleId, privilegeId], headerUser, pool);
-    if (!privilegeCheck.allowed) {
-      return res.status(403).json({
-        success: false,
-        error: privilegeCheck.error || 'Acceso denegado. No tienes permisos para gestionar roles.',
-        requiredPrivilege: privilegeCheck.requiredPrivilege
-      });
-    }
-
     if (!privilegeId) {
       return res.status(400).json({ success: false, error: 'privilegeId is required' });
     }
 
-    await pool.query('CALL assign_privilege_to_role($1, $2)', [roleId, privilegeId]);
-    res.json({ success: true, message: 'Privilege assigned successfully' });
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      // Fetch role context
+      const userResRole = await client.query('SELECT r.nombre_rol FROM usuario u JOIN rol r ON u.fk_cod_rol = r.cod WHERE u.cod = $1', [headerUser]);
+      if (userResRole.rows.length > 0) {
+        const roleName = userResRole.rows[0].nombre_rol.toLowerCase().replace(/\s+/g, '_');
+        const pgRole = `app_${roleName}`;
+        await client.query(`SET ROLE ${pgRole}`);
+      }
+
+      await client.query('CALL assign_privilege_to_role($1, $2)', [roleId, privilegeId]);
+      await client.query('COMMIT');
+      res.json({ success: true, message: 'Privilege assigned successfully' });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   } catch (error) {
     console.error(`Error assigning privilege to role ${req.params.roleId}:`, error);
     res.status(500).json({ success: false, error: error.message });
@@ -479,18 +502,26 @@ app.delete('/api/roles/:roleId/privileges/:privilegeId', async (req, res) => {
       });
     }
 
-    // Check privilege
-    const privilegeCheck = await checkProcedurePrivilege('remove_privilege_from_role', [roleId, privilegeId], headerUser, pool);
-    if (!privilegeCheck.allowed) {
-      return res.status(403).json({
-        success: false,
-        error: privilegeCheck.error || 'Acceso denegado. No tienes permisos para gestionar roles.',
-        requiredPrivilege: privilegeCheck.requiredPrivilege
-      });
-    }
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      // Fetch role context
+      const userResRole = await client.query('SELECT r.nombre_rol FROM usuario u JOIN rol r ON u.fk_cod_rol = r.cod WHERE u.cod = $1', [headerUser]);
+      if (userResRole.rows.length > 0) {
+        const roleName = userResRole.rows[0].nombre_rol.toLowerCase().replace(/\s+/g, '_');
+        const pgRole = `app_${roleName}`;
+        await client.query(`SET ROLE ${pgRole}`);
+      }
 
-    await pool.query('CALL remove_privilege_from_role($1, $2)', [roleId, privilegeId]);
-    res.json({ success: true, message: 'Privilege removed successfully' });
+      await pool.query('CALL remove_privilege_from_role($1, $2)', [roleId, privilegeId]);
+      await client.query('COMMIT');
+      res.json({ success: true, message: 'Privilege removed successfully' });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   } catch (error) {
     console.error(`Error removing privilege from role ${req.params.roleId}:`, error);
     res.status(500).json({ success: false, error: error.message });

@@ -83,8 +83,6 @@ DROP PROCEDURE IF EXISTS update_user_details(
     VARCHAR
 ) CASCADE;
 DROP FUNCTION IF EXISTS get_all_roles() CASCADE;
-DROP FUNCTION IF EXISTS audit_fn_usuario_update_role() CASCADE;
-DROP TRIGGER IF EXISTS trg_usuario_update_role ON usuario;
 DROP FUNCTION IF EXISTS get_all_packages() CASCADE;
 DROP PROCEDURE IF EXISTS upsert_package(
     INTEGER,
@@ -142,76 +140,43 @@ DROP PROCEDURE IF EXISTS remove_item_from_package(INTEGER, INTEGER, VARCHAR) CAS
 DROP PROCEDURE IF EXISTS add_child_package(INTEGER, INTEGER) CASCADE;
 DROP PROCEDURE IF EXISTS remove_child_package(INTEGER, INTEGER) CASCADE;
 -- =============================================
--- AUDIT SYSTEM DROPS
+-- DECOMMISSIONED OBJECTS (Auditing System)
 -- =============================================
 DROP FUNCTION IF EXISTS record_audit(TEXT) CASCADE;
--- Audit Wrappers & Triggers (Cascading functions usually drops triggers, but explicit drops are safer)
-DROP TRIGGER IF EXISTS trg_aerolinea_insert ON aerolinea;
-DROP TRIGGER IF EXISTS trg_aerolinea_update ON aerolinea;
-DROP TRIGGER IF EXISTS trg_aerolinea_delete ON aerolinea;
 DROP FUNCTION IF EXISTS audit_fn_aerolinea_insert() CASCADE;
 DROP FUNCTION IF EXISTS audit_fn_aerolinea_update() CASCADE;
 DROP FUNCTION IF EXISTS audit_fn_aerolinea_delete() CASCADE;
-DROP TRIGGER IF EXISTS trg_paquete_insert ON paquete_turistico;
-DROP TRIGGER IF EXISTS trg_paquete_update ON paquete_turistico;
-DROP TRIGGER IF EXISTS trg_paquete_delete ON paquete_turistico;
 DROP FUNCTION IF EXISTS audit_fn_paquete_insert() CASCADE;
 DROP FUNCTION IF EXISTS audit_fn_paquete_update() CASCADE;
 DROP FUNCTION IF EXISTS audit_fn_paquete_delete() CASCADE;
-DROP TRIGGER IF EXISTS trg_promocion_insert ON promocion;
-DROP TRIGGER IF EXISTS trg_promocion_update ON promocion;
-DROP TRIGGER IF EXISTS trg_promocion_delete ON promocion;
 DROP FUNCTION IF EXISTS audit_fn_promocion_insert() CASCADE;
 DROP FUNCTION IF EXISTS audit_fn_promocion_update() CASCADE;
 DROP FUNCTION IF EXISTS audit_fn_promocion_delete() CASCADE;
-DROP TRIGGER IF EXISTS trg_servicio_insert ON servicio;
-DROP TRIGGER IF EXISTS trg_servicio_update ON servicio;
-DROP TRIGGER IF EXISTS trg_servicio_delete ON servicio;
 DROP FUNCTION IF EXISTS audit_fn_servicio_insert() CASCADE;
 DROP FUNCTION IF EXISTS audit_fn_servicio_update() CASCADE;
 DROP FUNCTION IF EXISTS audit_fn_servicio_delete() CASCADE;
-DROP TRIGGER IF EXISTS trg_hotel_insert ON hotel;
-DROP TRIGGER IF EXISTS trg_hotel_update ON hotel;
-DROP TRIGGER IF EXISTS trg_hotel_delete ON hotel;
 DROP FUNCTION IF EXISTS audit_fn_hotel_insert() CASCADE;
 DROP FUNCTION IF EXISTS audit_fn_hotel_update() CASCADE;
 DROP FUNCTION IF EXISTS audit_fn_hotel_delete() CASCADE;
-DROP TRIGGER IF EXISTS trg_restaurant_insert ON restaurant;
-DROP TRIGGER IF EXISTS trg_restaurant_update ON restaurant;
-DROP TRIGGER IF EXISTS trg_restaurant_delete ON restaurant;
 DROP FUNCTION IF EXISTS audit_fn_restaurant_insert() CASCADE;
 DROP FUNCTION IF EXISTS audit_fn_restaurant_update() CASCADE;
 DROP FUNCTION IF EXISTS audit_fn_restaurant_delete() CASCADE;
-DROP TRIGGER IF EXISTS trg_pago_insert ON pago;
-DROP TRIGGER IF EXISTS trg_pago_update ON pago;
-DROP TRIGGER IF EXISTS trg_pago_delete ON pago;
 DROP FUNCTION IF EXISTS audit_fn_pago_insert() CASCADE;
 DROP FUNCTION IF EXISTS audit_fn_pago_update() CASCADE;
 DROP FUNCTION IF EXISTS audit_fn_pago_delete() CASCADE;
-DROP TRIGGER IF EXISTS trg_metodopago_insert ON metodoDePago;
-DROP TRIGGER IF EXISTS trg_metodopago_update ON metodoDePago;
-DROP TRIGGER IF EXISTS trg_metodopago_delete ON metodoDePago;
 DROP FUNCTION IF EXISTS audit_fn_metodopago_insert() CASCADE;
 DROP FUNCTION IF EXISTS audit_fn_metodopago_update() CASCADE;
 DROP FUNCTION IF EXISTS audit_fn_metodopago_delete() CASCADE;
-DROP TRIGGER IF EXISTS trg_telefono_insert ON telefono;
-DROP TRIGGER IF EXISTS trg_telefono_update ON telefono;
-DROP TRIGGER IF EXISTS trg_telefono_delete ON telefono;
 DROP FUNCTION IF EXISTS audit_fn_telefono_insert() CASCADE;
 DROP FUNCTION IF EXISTS audit_fn_telefono_update() CASCADE;
 DROP FUNCTION IF EXISTS audit_fn_telefono_delete() CASCADE;
-DROP TRIGGER IF EXISTS trg_reclamo_insert ON reclamo;
-DROP TRIGGER IF EXISTS trg_reclamo_update ON reclamo;
-DROP TRIGGER IF EXISTS trg_reclamo_resolve ON reclamo;
 DROP FUNCTION IF EXISTS audit_fn_reclamo_insert() CASCADE;
 DROP FUNCTION IF EXISTS audit_fn_reclamo_update() CASCADE;
 DROP FUNCTION IF EXISTS audit_fn_reclamo_resolve() CASCADE;
-DROP TRIGGER IF EXISTS trg_resena_insert ON reseña;
-DROP TRIGGER IF EXISTS trg_resena_update ON reseña;
-DROP TRIGGER IF EXISTS trg_resena_delete ON reseña;
 DROP FUNCTION IF EXISTS audit_fn_resena_insert() CASCADE;
 DROP FUNCTION IF EXISTS audit_fn_resena_update() CASCADE;
 DROP FUNCTION IF EXISTS audit_fn_resena_delete() CASCADE;
+DROP FUNCTION IF EXISTS audit_fn_usuario_update_role() CASCADE;
 -- =============================================
 -- PRIVILEGE & SECURITY DROPS
 -- =============================================
@@ -315,8 +280,14 @@ DROP PROCEDURE IF EXISTS process_payment(
     -- p_cedula
     VARCHAR,
     -- p_phone
-    VARCHAR -- p_usdt_id (ADDED)
+    VARCHAR,
+    -- p_usdt_id
+    INTEGER -- p_plan_id (ADDED)
 ) CASCADE;
+DROP FUNCTION IF EXISTS calculate_package_price CASCADE;
+DROP FUNCTION IF EXISTS get_package_payment_info CASCADE;
+DROP FUNCTION IF EXISTS get_booking_passengers(INTEGER) CASCADE;
+DROP FUNCTION IF EXISTS get_package_total_price(INTEGER) CASCADE;
 DROP FUNCTION IF EXISTS get_user_bookings(INTEGER) CASCADE;
 DROP PROCEDURE IF EXISTS toggle_wishlist(INTEGER, INTEGER) CASCADE;
 DROP FUNCTION IF EXISTS is_in_wishlist(INTEGER, INTEGER) CASCADE;
@@ -362,3 +333,87 @@ DROP PROCEDURE IF EXISTS submit_complaint(
     INTEGER
 ) CASCADE;
 DROP FUNCTION IF EXISTS get_user_complaints(INTEGER) CASCADE;
+DROP FUNCTION IF EXISTS get_all_characteristics() CASCADE;
+-- =============================================
+-- 17. ELIMINAR ROLES DE LA APLICACIÓN
+-- =============================================
+DO $$ BEGIN IF EXISTS (
+    SELECT 1
+    FROM pg_roles
+    WHERE rolname = 'app_administrador'
+) THEN EXECUTE 'DROP OWNED BY app_administrador';
+END IF;
+END $$;
+DROP ROLE IF EXISTS app_administrador;
+DO $$ BEGIN IF EXISTS (
+    SELECT 1
+    FROM pg_roles
+    WHERE rolname = 'app_cliente'
+) THEN EXECUTE 'DROP OWNED BY app_cliente';
+END IF;
+END $$;
+DROP ROLE IF EXISTS app_cliente;
+DO $$ BEGIN IF EXISTS (
+    SELECT 1
+    FROM pg_roles
+    WHERE rolname = 'app_proveedor'
+) THEN EXECUTE 'DROP OWNED BY app_proveedor';
+END IF;
+END $$;
+DROP ROLE IF EXISTS app_proveedor;
+DO $$ BEGIN IF EXISTS (
+    SELECT 1
+    FROM pg_roles
+    WHERE rolname = 'app_auditor'
+) THEN EXECUTE 'DROP OWNED BY app_auditor';
+END IF;
+END $$;
+DROP ROLE IF EXISTS app_auditor;
+DO $$ BEGIN IF EXISTS (
+    SELECT 1
+    FROM pg_roles
+    WHERE rolname = 'app_agente'
+) THEN EXECUTE 'DROP OWNED BY app_agente';
+END IF;
+END $$;
+DROP ROLE IF EXISTS app_agente;
+DO $$ BEGIN IF EXISTS (
+    SELECT 1
+    FROM pg_roles
+    WHERE rolname = 'app_analista'
+) THEN EXECUTE 'DROP OWNED BY app_analista';
+END IF;
+END $$;
+DROP ROLE IF EXISTS app_analista;
+DO $$ BEGIN IF EXISTS (
+    SELECT 1
+    FROM pg_roles
+    WHERE rolname = 'app_gerente'
+) THEN EXECUTE 'DROP OWNED BY app_gerente';
+END IF;
+END $$;
+DROP ROLE IF EXISTS app_gerente;
+DO $$ BEGIN IF EXISTS (
+    SELECT 1
+    FROM pg_roles
+    WHERE rolname = 'app_operador'
+) THEN EXECUTE 'DROP OWNED BY app_operador';
+END IF;
+END $$;
+DROP ROLE IF EXISTS app_operador;
+DO $$ BEGIN IF EXISTS (
+    SELECT 1
+    FROM pg_roles
+    WHERE rolname = 'app_soporte'
+) THEN EXECUTE 'DROP OWNED BY app_soporte';
+END IF;
+END $$;
+DROP ROLE IF EXISTS app_soporte;
+DO $$ BEGIN IF EXISTS (
+    SELECT 1
+    FROM pg_roles
+    WHERE rolname = 'app_ventas'
+) THEN EXECUTE 'DROP OWNED BY app_ventas';
+END IF;
+END $$;
+DROP ROLE IF EXISTS app_ventas;
