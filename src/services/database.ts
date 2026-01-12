@@ -1134,3 +1134,18 @@ export async function getHotelReviews(hotelId: number): Promise<Review[]> {
   ]);
   return result;
 }
+
+// ==================== Characteristics ====================
+
+export interface Characteristic {
+  cod: number;
+  nombre_car: string;
+  tipo_dato_car: string;
+}
+
+/**
+ * Get all available characteristics
+ */
+export async function getAllCharacteristics(): Promise<Characteristic[]> {
+  return callFunction<Characteristic>('get_all_characteristics', []);
+}

@@ -13,7 +13,7 @@ tag_paq,
 tag_usu,
 paq_paq,
 tur_ser,
-pre_usu,
+car_usu,
 pro_ser,
 priv_rol,
 aud_usu CASCADE;
@@ -32,7 +32,7 @@ reseña,
 deseo,
 telefono,
 promocion,
-preferencia,
+caracteristica,
 tag,
 auditoria CASCADE;
 -- 4. Eliminar tablas de Transporte (Flota)

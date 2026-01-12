@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Search, Plus, Edit2, Trash2, ChevronLeft, ChevronRight, Save, X, Plane, Hotel, Calendar, Users, Clock, DollarSign, Package, Tag as TagIcon } from 'lucide-react';
-import { getAllPackages, upsertPackage, deletePackage, getPackageDetails, getAllServices, getAllHotels, getAllRestaurants, addItemToPackage, removeItemFromPackage, ServiceItem, HotelItem, getAllTags, upsertTag, assignTagToPackage, removeAllTagsFromPackage, Tag as DbTag, getPackageTags } from '../services/database';
+import { getAllPackages, upsertPackage, deletePackage, getPackageDetails, getAllServices, getAllHotels, getAllRestaurants, addItemToPackage, removeItemFromPackage, ServiceItem, HotelItem, getAllTags, upsertTag, assignTagToPackage, removeAllTagsFromPackage, Tag as DbTag, getPackageTags, getAllCharacteristics, Characteristic } from '../services/database';
 
 interface Service {
   id: number;
@@ -52,10 +52,13 @@ export function TourPackages() {
     endDate: '',
   });
 
+  const [allCharacteristics, setAllCharacteristics] = useState<Characteristic[]>([]);
+
   useEffect(() => {
     getAllServices().then(setAvailableServices).catch(err => console.error('Failed to load services', err));
     getAllHotels().then(setAvailableHotels).catch(err => console.error('Failed to load hotels', err));
     getAllRestaurants().then(setAvailableRestaurants).catch(err => console.error('Failed to load restaurants', err));
+    getAllCharacteristics().then(setAllCharacteristics).catch(err => console.error('Failed to load characteristics', err));
     loadAllTags();
   }, []);
 
@@ -1004,9 +1007,18 @@ export function TourPackages() {
                       className="w-full px-3 py-1.5 text-sm bg-[var(--color-card)] border border-[var(--color-border)] rounded-md"
                     >
                       <option value="">Select Attribute</option>
-                      <option value="age">Age</option>
-                      <option value="miles">Accumulated Miles</option>
-                      <option value="visa">Has Visa</option>
+                      <optgroup label="System Attributes">
+                        <option value="age">Age</option>
+                        <option value="miles">Accumulated Miles</option>
+                        <option value="visa">Has Visa</option>
+                      </optgroup>
+                      {allCharacteristics.length > 0 && (
+                        <optgroup label="User Characteristics">
+                          {allCharacteristics.map((char: Characteristic) => (
+                            <option key={char.cod} value={char.nombre_car}>{char.nombre_car} ({char.tipo_dato_car})</option>
+                          ))}
+                        </optgroup>
+                      )}
                     </select>
                   </div>
 

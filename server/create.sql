@@ -308,9 +308,10 @@ CREATE TABLE promocion (
     tipo_pro VARCHAR(50) NOT NULL,
     porcen_descuento DECIMAL(5, 2) NOT NULL
 );
-CREATE TABLE preferencia (
+CREATE TABLE caracteristica (
     cod SERIAL PRIMARY KEY,
-    descripcion_pre VARCHAR(100) NOT NULL
+    nombre_car VARCHAR(100) NOT NULL,
+    tipo_dato_car VARCHAR(50) NOT NULL
 );
 CREATE TABLE tag (
     cod SERIAL PRIMARY KEY,
@@ -341,9 +342,11 @@ CREATE TABLE tur_ser (
     fk_turistico INTEGER REFERENCES turistico(cod),
     fk_servicio INTEGER REFERENCES servicio(cod)
 );
-CREATE TABLE pre_usu (
-    fk_preferencia INTEGER REFERENCES preferencia(cod),
-    fk_usuario INTEGER REFERENCES usuario(cod)
+CREATE TABLE car_usu (
+    fk_caracteristica INTEGER REFERENCES caracteristica(cod),
+    fk_usuario INTEGER REFERENCES usuario(cod),
+    dato_car_usu VARCHAR(255) NOT NULL,
+    PRIMARY KEY (fk_caracteristica, fk_usuario)
 );
 CREATE TABLE pro_ser (
     fecha_inicio DATE NOT NULL,
@@ -2415,7 +2418,9 @@ u_visa BOOLEAN;
 t_attr VARCHAR(255);
 t_op VARCHAR(20);
 t_val VARCHAR(255);
-BEGIN -- Get user data
+v_car_val VARCHAR(255);
+v_car_type VARCHAR(50);
+BEGIN -- 1. Get user data (fallbacks)
 SELECT EXTRACT(
         YEAR
         FROM AGE(fecha_nacimiento)
@@ -2426,7 +2431,7 @@ SELECT EXTRACT(
     u_visa
 FROM usuario
 WHERE cod = p_user_id;
--- Get tag condition
+-- 2. Get tag condition
 SELECT condicion1_tag,
     condicional_tag,
     condicion2_tag INTO t_attr,
@@ -2434,11 +2439,44 @@ SELECT condicion1_tag,
     t_val
 FROM tag
 WHERE cod = p_tag_id;
--- If not a restriction or no condition, it passes
+-- If no condition, it passes
 IF t_attr IS NULL
 OR t_attr = '' THEN RETURN TRUE;
 END IF;
--- Evaluate
+-- 3. Check if t_attr is a characteristic
+SELECT c.tipo_dato_car,
+    cu.dato_car_usu INTO v_car_type,
+    v_car_val
+FROM caracteristica c
+    LEFT JOIN car_usu cu ON c.cod = cu.fk_caracteristica
+    AND cu.fk_usuario = p_user_id
+WHERE c.nombre_car = t_attr;
+IF FOUND THEN -- Characteristic logic
+-- If user doesn't have the characteristic, v_car_val is NULL.
+-- Handle comparisons based on type.
+IF v_car_type = 'Boolean' THEN -- For booleans, we usually just compare equal/not equal
+RETURN COALESCE(v_car_val, 'false')::BOOLEAN = (t_val::BOOLEAN);
+ELSIF v_car_type = 'Integer' THEN CASE
+    t_op
+    WHEN '>' THEN RETURN COALESCE(v_car_val, '0')::INTEGER > t_val::INTEGER;
+WHEN '>=' THEN RETURN COALESCE(v_car_val, '0')::INTEGER >= t_val::INTEGER;
+WHEN '<' THEN RETURN COALESCE(v_car_val, '0')::INTEGER < t_val::INTEGER;
+WHEN '<=' THEN RETURN COALESCE(v_car_val, '0')::INTEGER <= t_val::INTEGER;
+WHEN '=' THEN RETURN COALESCE(v_car_val, '0')::INTEGER = t_val::INTEGER;
+ELSE RETURN FALSE;
+END CASE
+;
+ELSE -- String or others
+CASE
+    t_op
+    WHEN '=' THEN RETURN COALESCE(v_car_val, '') = t_val;
+WHEN '!=' THEN RETURN COALESCE(v_car_val, '') != t_val;
+ELSE RETURN FALSE;
+END CASE
+;
+END IF;
+END IF;
+-- 4. Fallback to hardcoded user columns
 IF t_attr = 'age' THEN CASE
     t_op
     WHEN '>' THEN RETURN u_age > t_val::INTEGER;
@@ -2760,5 +2798,20 @@ FROM reclamo r
     LEFT JOIN hotel h ON r.fk_cod_hotel = h.cod
 WHERE r.fk_cod_usuario = p_user_id
 ORDER BY r.cod DESC;
+END;
+$$ LANGUAGE plpgsql;
+-- =============================================
+-- 18. CHARACTERISTIC FUNCTIONS
+-- =============================================
+CREATE OR REPLACE FUNCTION get_all_characteristics() RETURNS TABLE (
+        cod INTEGER,
+        nombre_car VARCHAR,
+        tipo_dato_car VARCHAR
+    ) AS $$ BEGIN RETURN QUERY
+SELECT c.cod,
+    c.nombre_car,
+    c.tipo_dato_car
+FROM caracteristica c
+ORDER BY c.nombre_car;
 END;
 $$ LANGUAGE plpgsql;

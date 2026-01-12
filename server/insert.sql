@@ -1301,6 +1301,51 @@ SELECT 'Tag ' || g,
     'C2',
     false
 FROM generate_series(1, 10) g;
+-- Restrictive Tags using Characteristics
+INSERT INTO tag (
+        nombre_tag,
+        condicion1_tag,
+        condicional_tag,
+        condicion2_tag,
+        restriccion_tag
+    )
+VALUES (
+        'Solo VIP (Hotel 4+*)',
+        'Estrellas de Hotel',
+        '>=',
+        '4',
+        true
+    ),
+    (
+        'Vuelo Primera Clase Obligatorio',
+        'Primera Clase',
+        '=',
+        'true',
+        true
+    ),
+    (
+        'Solo Mayores de 21',
+        'age',
+        '>=',
+        '21',
+        true
+    );
+-- Link restrictive tags to some packages
+INSERT INTO tag_paq (fk_tag, fk_paquete)
+SELECT t.cod,
+    p.cod
+FROM tag t
+    CROSS JOIN (
+        SELECT cod
+        FROM paquete_turistico
+        ORDER BY random()
+        LIMIT 3
+    ) p
+WHERE t.nombre_tag IN (
+        'Solo VIP (Hotel 4+*)',
+        'Vuelo Primera Clase Obligatorio',
+        'Solo Mayores de 21'
+    ) ON CONFLICT DO NOTHING;
 INSERT INTO promocion (tipo_pro, porcen_descuento)
 VALUES ('Summer Sale', 15),
     ('Winter Deal', 20),
@@ -1330,27 +1375,31 @@ FROM promocion p
     );
 END LOOP;
 END $$;
-INSERT INTO preferencia (descripcion_pre)
-VALUES ('Ventana'),
-    ('Pasillo'),
-    ('Comida Vegetariana'),
-    ('Sin Gluten'),
-    ('Asiento Extra'),
-    ('Primera Clase'),
-    ('Hotel 5 Estrellas'),
-    ('Vista al Mar'),
-    ('Cama King'),
-    ('Transporte Privado');
--- Generate pre_usu (at least 10)
-INSERT INTO pre_usu (fk_preferencia, fk_usuario)
+INSERT INTO caracteristica (nombre_car, tipo_dato_car)
+VALUES ('Ventana', 'Boolean'),
+    ('Pasillo', 'Boolean'),
+    ('Comida Vegetariana', 'Boolean'),
+    ('Sin Gluten', 'Boolean'),
+    ('Asiento Extra', 'Boolean'),
+    ('Primera Clase', 'Boolean'),
+    ('Estrellas de Hotel', 'Integer'),
+    ('Vista al Mar', 'Boolean'),
+    ('Tipo de Cama', 'String'),
+    ('Transporte Privado', 'Boolean');
+-- Generate car_usu (at least 10)
+INSERT INTO car_usu (fk_caracteristica, fk_usuario, dato_car_usu)
 SELECT cod,
     (
         SELECT cod
         FROM usuario
         ORDER BY random()
         LIMIT 1
-    )
-FROM preferencia
+    ), CASE
+        WHEN tipo_dato_car = 'Boolean' THEN 'true'
+        WHEN tipo_dato_car = 'Integer' THEN '5'
+        ELSE 'Generic Data'
+    END
+FROM caracteristica
 LIMIT 10;
 -- Generate tag_paq and tag_usu (at least 10 each)
 INSERT INTO tag_paq (fk_tag, fk_paquete)
