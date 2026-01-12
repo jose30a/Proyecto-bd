@@ -1,7 +1,17 @@
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
-const { isPublicProcedure } = require('./privilege-middleware'); // Only keep public check for now
+// Procedures that don't require authentication
+const isPublicProcedure = (procedureName) => {
+  const publicProcedures = [
+    'authenticate_user',
+    'register_user',
+    'email_exists',
+    'get_all_roles'
+  ];
+  return publicProcedures.includes(procedureName);
+};
+
 require('dotenv').config();
 
 const app = express();

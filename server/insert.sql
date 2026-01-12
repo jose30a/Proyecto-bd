@@ -1420,13 +1420,23 @@ FROM tag t
         LIMIT 2
     ) u
 LIMIT 15;
--- Generate paq_paq (Package composition, at least 10)
+-- Generate paq_paq (Explicit Itineraries)
+-- 1. "Grand Tour of Europe" (Parent) gets "Vacations of [User]" (Children)
 INSERT INTO paq_paq (fk_paquete_padre, fk_paquete_hijo)
-SELECT p1.cod,
-    p2.cod
-FROM paquete_turistico p1
-    JOIN paquete_turistico p2 ON p1.cod < p2.cod
-LIMIT 12;
+SELECT 1,
+    cod
+FROM paquete_turistico
+WHERE cod BETWEEN 5 AND 8;
+-- 2. "World Explorer" (Parent)
+INSERT INTO paq_paq (fk_paquete_padre, fk_paquete_hijo)
+SELECT 2,
+    cod
+FROM paquete_turistico
+WHERE cod BETWEEN 9 AND 12;
+-- 3. Nested example
+INSERT INTO paq_paq (fk_paquete_padre, fk_paquete_hijo)
+VALUES (3, 1),
+    (3, 2);
 INSERT INTO telefono (cod_area_tel, numero_tel, tipo_tel, fk_cod_aer)
 SELECT '0414',
     floor(random() * 9000000) + 1000000,
@@ -1624,82 +1634,113 @@ FROM usuario u
     JOIN paquete_turistico p ON u.cod = p.fk_cod_usuario
 ORDER BY random()
 LIMIT 10;
--- Service Reviews
+-- 1-Star Reviews
 INSERT INTO reseña (
         descripcion_res,
         rating_res,
         fk_cod_usuario,
         fk_ser_paq
     )
-SELECT 'The flight crew was very attentive and the boarding process was smooth.',
+SELECT 'Absolutely terrible service. The flight was delayed 10 hours and no one helped us.',
+    1,
+    u.cod,
+    sp.cod
+FROM usuario u
+    JOIN ser_paq sp ON true
+    JOIN servicio s ON sp.fk_servicio = s.cod
+WHERE s.nombre_ser LIKE '%Vuelo%'
+LIMIT 2;
+-- 2-Star Reviews
+INSERT INTO reseña (
+        descripcion_res,
+        rating_res,
+        fk_cod_usuario,
+        fk_ser_paq
+    )
+SELECT 'The hotel was noisy and the room was not clean. Disappointing.',
+    2,
+    u.cod,
+    hp.cod
+FROM usuario u
+    JOIN hot_paq hp ON true
+    JOIN hotel h ON hp.fk_hotel = h.cod
+LIMIT 2;
+-- 3-Star Reviews
+INSERT INTO reseña (
+        descripcion_res,
+        rating_res,
+        fk_cod_usuario,
+        fk_ser_paq
+    )
+SELECT 'It was okay, but the price was too high for what we got.',
+    3,
+    u.cod,
+    sp.cod
+FROM usuario u
+    JOIN ser_paq sp ON true
+    JOIN servicio s ON sp.fk_servicio = s.cod
+WHERE s.nombre_ser LIKE '%Tour%'
+LIMIT 3;
+-- 4-Star Reviews
+INSERT INTO reseña (
+        descripcion_res,
+        rating_res,
+        fk_cod_usuario,
+        fk_ser_paq
+    )
+SELECT 'Great experience overall, just a few minor inconveniences.',
+    4,
+    u.cod,
+    sp.cod
+FROM usuario u
+    JOIN ser_paq sp ON true
+    JOIN servicio s ON sp.fk_servicio = s.cod
+WHERE s.nombre_ser LIKE '%Crucero%'
+LIMIT 3;
+-- 5-Star Reviews
+INSERT INTO reseña (
+        descripcion_res,
+        rating_res,
+        fk_cod_usuario,
+        fk_ser_paq
+    )
+SELECT 'Perfect! Exceeded all expectations. Will definitely book again.',
     5,
     u.cod,
     sp.cod
-FROM usuario u,
-    ser_paq sp
+FROM usuario u
+    JOIN ser_paq sp ON true
     JOIN servicio s ON sp.fk_servicio = s.cod
 WHERE s.nombre_ser LIKE '%Vuelo%'
+    OR s.nombre_ser LIKE '%Tour%'
 LIMIT 5;
+-- Mixed Hotel Reviews
 INSERT INTO reseña (
         descripcion_res,
         rating_res,
         fk_cod_usuario,
-        fk_ser_paq
+        fk_cod_hotel
     )
-SELECT 'The guided city tour was informative, but the guide spoke a bit too fast.',
-    4,
+SELECT 'Wonderful stay, the spa was amazing.',
+    5,
     u.cod,
-    sp.cod
-FROM usuario u,
-    ser_paq sp
-    JOIN servicio s ON sp.fk_servicio = s.cod
-WHERE s.nombre_ser LIKE '%Tour%'
-LIMIT 5;
-INSERT INTO reseña (
-        descripcion_res,
-        rating_res,
-        fk_cod_usuario,
-        fk_ser_paq
-    )
-SELECT 'El crucero fue espectacular, pero las excursiones en tierra eran muy cortas.',
-    4,
-    u.cod,
-    sp.cod
-FROM usuario u,
-    ser_paq sp
-    JOIN servicio s ON sp.fk_servicio = s.cod
-WHERE s.nombre_ser LIKE '%Crucero%'
+    h.cod
+FROM usuario u
+    JOIN hotel h ON true
 LIMIT 3;
 INSERT INTO reseña (
         descripcion_res,
         rating_res,
         fk_cod_usuario,
-        fk_ser_paq
+        fk_cod_hotel
     )
-SELECT 'Excelente atención en el restaurante del hotel. La comida deliciosa.',
-    5,
-    u.cod,
-    sp.cod
-FROM usuario u,
-    ser_paq sp
-    JOIN servicio s ON sp.fk_servicio = s.cod
-WHERE s.nombre_ser LIKE '%Restaurante%'
-LIMIT 5;
-INSERT INTO reseña (
-        descripcion_res,
-        rating_res,
-        fk_cod_usuario,
-        fk_ser_paq
-    )
-SELECT 'Car rental process was slow. They didn''t have the exact model I booked.',
+SELECT 'The breakfast was poor and the staff was rude.',
     2,
     u.cod,
-    sp.cod
-FROM usuario u,
-    ser_paq sp
-    JOIN servicio s ON sp.fk_servicio = s.cod
-WHERE s.nombre_ser LIKE '%Alquiler%'
-LIMIT 1;
+    h.cod
+FROM usuario u
+    JOIN hotel h ON true OFFSET 3
+LIMIT 2;
 -- =============================================
 -- 12. PLANES DE PAGO
 -- =============================================

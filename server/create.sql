@@ -2389,17 +2389,23 @@ CREATE OR REPLACE FUNCTION get_package_services_with_ratings(p_package_id INTEGE
         s_type VARCHAR,
         s_avg_rating DECIMAL,
         s_review_count INTEGER
-    ) AS $$ BEGIN RETURN QUERY
+    ) AS $$ BEGIN RETURN QUERY WITH RECURSIVE package_hierarchy AS (
+        SELECT p_package_id AS package_id
+        UNION ALL
+        SELECT pp.fk_paquete_hijo
+        FROM paq_paq pp
+            JOIN package_hierarchy ph ON pp.fk_paquete_padre = ph.package_id
+    )
 SELECT s.cod,
     s.nombre_ser,
     'Service'::VARCHAR as s_type,
     COALESCE(AVG(r.rating_res), 0)::DECIMAL AS s_avg_rating,
     COUNT(r.cod)::INTEGER AS s_review_count
 FROM ser_paq sp
+    JOIN package_hierarchy ph ON sp.fk_paquete = ph.package_id
     JOIN servicio s ON sp.fk_servicio = s.cod
     LEFT JOIN ser_paq sp_all ON s.cod = sp_all.fk_servicio
     LEFT JOIN reseña r ON sp_all.cod = r.fk_ser_paq
-WHERE sp.fk_paquete = p_package_id
 GROUP BY s.cod,
     s.nombre_ser;
 END;
@@ -2448,15 +2454,21 @@ CREATE OR REPLACE FUNCTION get_package_hotels_with_ratings(p_package_id INTEGER)
         h_nombre VARCHAR,
         h_avg_rating DECIMAL,
         h_review_count INTEGER
-    ) AS $$ BEGIN RETURN QUERY
+    ) AS $$ BEGIN RETURN QUERY WITH RECURSIVE package_hierarchy AS (
+        SELECT p_package_id AS package_id
+        UNION ALL
+        SELECT pp.fk_paquete_hijo
+        FROM paq_paq pp
+            JOIN package_hierarchy ph ON pp.fk_paquete_padre = ph.package_id
+    )
 SELECT h.cod,
     h.nombre_hot,
     COALESCE(AVG(r.rating_res), 0)::DECIMAL AS h_avg_rating,
     COUNT(r.cod)::INTEGER AS h_review_count
 FROM hot_paq hp
+    JOIN package_hierarchy ph ON hp.fk_paquete = ph.package_id
     JOIN hotel h ON hp.fk_hotel = h.cod
     LEFT JOIN reseña r ON h.cod = r.fk_cod_hotel
-WHERE hp.fk_paquete = p_package_id
 GROUP BY h.cod,
     h.nombre_hot;
 END;
