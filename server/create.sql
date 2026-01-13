@@ -2629,8 +2629,11 @@ EXECUTE format(
     current_user
 );
 END $$;
+GRANT USAGE ON SCHEMA public TO app_administrador, app_cliente, app_agente, app_proveedor, app_auditor, app_analista, app_gerente, app_operador, app_soporte, app_ventas;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO app_administrador;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO app_administrador;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO app_administrador;
+GRANT EXECUTE ON ALL PROCEDURES IN SCHEMA public TO app_administrador;
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO app_cliente;
 GRANT INSERT,
     UPDATE ON pago,
